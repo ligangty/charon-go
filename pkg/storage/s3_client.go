@@ -15,12 +15,16 @@ import (
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
+type s3ClientIface interface {
+	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+}
+
 type S3Client struct {
 	aws_profile string
 	con_limit   int
 	dry_run     bool
 	buckets     map[string]types.Bucket
-	client      *s3.Client
+	client      s3ClientIface
 }
 
 func NewS3Client(aws_profile string, con_limit int, dry_run bool) (*S3Client, error) {
