@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -17,6 +18,7 @@ var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 type s3ClientIface interface {
 	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
 
 type S3Client struct {
@@ -85,6 +87,28 @@ func (c *S3Client) GetFiles(bucketName string,
 		}
 	}
 	return files, true
+}
+
+func (c S3Client) ReadFileContent(bucketName, key string) (string, error) {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(key),
+	}
+	output, err := c.client.GetObject(context.TODO(), input)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
+			bucketName, err))
+		return "", err
+	}
+	defer output.Body.Close()
+
+	contentBytes, err := io.ReadAll(output.Body)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
+			bucketName, err))
+		return "", err
+	}
+	return string(contentBytes[:]), nil
 }
 
 // Upload a list of files to s3 bucket.
