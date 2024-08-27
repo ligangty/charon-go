@@ -6,18 +6,20 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"org.commonjava/charon/pkg/util"
 )
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 type s3ClientIface interface {
-	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+	s3.ListObjectsV2APIClient
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
 
@@ -25,7 +27,6 @@ type S3Client struct {
 	aws_profile string
 	con_limit   int
 	dry_run     bool
-	buckets     map[string]types.Bucket
 	client      s3ClientIface
 }
 
@@ -89,7 +90,7 @@ func (c *S3Client) GetFiles(bucketName string,
 	return files, true
 }
 
-func (c S3Client) ReadFileContent(bucketName, key string) (string, error) {
+func (c *S3Client) getObject(bucketName, key string) ([]byte, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
@@ -98,17 +99,33 @@ func (c S3Client) ReadFileContent(bucketName, key string) (string, error) {
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
 			bucketName, err))
-		return "", err
+		return nil, err
 	}
 	defer output.Body.Close()
 
-	contentBytes, err := io.ReadAll(output.Body)
+	return io.ReadAll(output.Body)
+}
+
+func (c *S3Client) ReadFileContent(bucketName, key string) (string, error) {
+	contentBytes, err := c.getObject(bucketName, key)
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
 			bucketName, err))
 		return "", err
 	}
 	return string(contentBytes[:]), nil
+}
+
+func (c *S3Client) DownloadFile(bucketName, key, filePath string) error {
+	contentBytes, err := c.getObject(bucketName, key)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[S3] ERROR: Can not download file %s in bucket %s due to error: %s ", key,
+			bucketName, err))
+		return err
+	}
+	realFilePath := path.Join(filePath, key)
+	util.StoreFile(realFilePath, string(contentBytes), true)
+	return nil
 }
 
 // Upload a list of files to s3 bucket.
@@ -139,18 +156,4 @@ func (c *S3Client) UploadFiles(file_paths []string, targets [][]string,
 		realRoot = "/"
 	}
 	//TODO: not implemented yet
-}
-
-func (c *S3Client) getBucket(bucket_name string) types.Bucket {
-	// self.__lock.acquire()
-	// defer self.__lock.release()
-	bucket, existed := c.buckets[bucket_name]
-	if existed {
-		return bucket
-	}
-
-	logger.Debug(fmt.Sprintf("[S3] Cache aws bucket %s", bucket_name))
-	bucket = types.Bucket{Name: &bucket_name}
-	c.buckets[bucket_name] = bucket
-	return bucket
 }

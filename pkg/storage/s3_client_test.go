@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path"
 	"strings"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
+	"org.commonjava/charon/pkg/util"
 )
 
 const TEST_BUCKET = "test_bucket"
@@ -123,5 +126,38 @@ func TestReadFileContent(t *testing.T) {
 	content, err := s3client.ReadFileContent(TEST_BUCKET, testKey)
 	assert.Nil(t, err)
 	assert.Equal(t, testContet, content)
+}
 
+func TestDownloadFile(t *testing.T) {
+	testKey := "foo/bar/foo-bar.txt"
+	testContet := "just test"
+	s3client, err := S3ClientWithMock(MockAWSS3Client{
+		getObj: func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
+				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
+			}
+			if params.Key == nil || strings.TrimSpace(*params.Key) != testKey {
+				return nil, fmt.Errorf("404 Not Found: expect key to be %s", testKey)
+			}
+			return &s3.GetObjectOutput{
+				Body: io.NopCloser(strings.NewReader(testContet)),
+			}, nil
+		},
+	})
+	assert.Nil(t, err)
+
+	err = s3client.DownloadFile("", testKey, "/tmp")
+	assert.Contains(t, err.Error(), TEST_BUCKET)
+
+	err = s3client.DownloadFile(TEST_BUCKET, "no-key", "/tmp")
+	assert.Contains(t, err.Error(), "404")
+
+	err = s3client.DownloadFile(TEST_BUCKET, testKey, "/tmp")
+	assert.Nil(t, err)
+	assert.True(t, util.FileOrDirExists(path.Join("/tmp", testKey)))
+	fileContent, err := util.ReadFile(path.Join("/tmp", testKey))
+	assert.Nil(t, err)
+	assert.Equal(t, testContet, fileContent)
+
+	os.Remove(path.Join("/tmp", testKey))
 }
