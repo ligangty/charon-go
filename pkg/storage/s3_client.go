@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,7 @@ var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 type s3ClientIface interface {
 	s3.ListObjectsV2APIClient
+	s3.HeadObjectAPIClient
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
 
@@ -165,6 +167,21 @@ func (c *S3Client) ListFolderContent(bucketName, folder string) []string {
 		}
 	}
 	return contents
+}
+
+func (c *S3Client) FileExistsInBucket(bucketName, path string) (bool, error) {
+	_, err := c.client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(path),
+	})
+	if err != nil {
+		var ae *types.NotFound
+		if errors.As(err, &ae) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // Upload a list of files to s3 bucket.

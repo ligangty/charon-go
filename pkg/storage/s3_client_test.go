@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"org.commonjava/charon/pkg/util"
 )
@@ -20,11 +21,15 @@ const TEST_BUCKET = "test_bucket"
 
 type MockAWSS3Client struct {
 	lsObjV2 func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+	headObj func(context.Context, *s3.HeadObjectInput, ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
 	getObj  func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
 
 func (m MockAWSS3Client) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 	return m.lsObjV2(ctx, params, optFns...)
+}
+func (m MockAWSS3Client) HeadObject(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+	return m.headObj(ctx, params, optFns...)
 }
 func (m MockAWSS3Client) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 	return m.getObj(ctx, params, optFns...)
@@ -216,4 +221,35 @@ func TestListFolderContent(t *testing.T) {
 	assert.Equal(t, 2, len(contents))
 	assert.Contains(t, contents, all_files[1])
 	assert.Contains(t, contents, "org/apache/lucene/")
+}
+
+func TestFileExistsInBucket(t *testing.T) {
+	s3client, err := S3ClientWithMock(MockAWSS3Client{
+		headObj: func(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
+				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
+			}
+			if params.Key != nil && strings.TrimSpace(*params.Key) != "" {
+				if *params.Key == "org/apache/index.html" {
+					return &s3.HeadObjectOutput{}, nil
+				} else {
+					return nil, &types.NotFound{}
+				}
+			}
+			return nil, &smithy.GenericAPIError{}
+		},
+	})
+	assert.Nil(t, err)
+
+	ok, err := s3client.FileExistsInBucket(TEST_BUCKET, "org/apache/index.html")
+	assert.Nil(t, err)
+	assert.True(t, ok)
+
+	ok, err = s3client.FileExistsInBucket(TEST_BUCKET, "org/apache/no-exist.html")
+	assert.Nil(t, err)
+	assert.False(t, ok)
+
+	ok, err = s3client.FileExistsInBucket(TEST_BUCKET, "")
+	assert.NotNil(t, err)
+	assert.False(t, ok)
 }

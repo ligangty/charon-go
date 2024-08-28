@@ -29,8 +29,14 @@ func main() {
 	// 	fmt.Println(content)
 	// }
 
-	content := s3Client.ListFolderContent("dev-maven-bucket", "ga/org/")
-	for _, c := range content {
-		fmt.Println(c)
+	// content := s3Client.ListFolderContent("dev-maven-bucket", "ga/org/")
+	// for _, c := range content {
+	// 	fmt.Println(c)
+	// }
+
+	ok, err := s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/index.html")
+	if err != nil {
+		panic(err)
 	}
+	fmt.Println(ok)
 }
