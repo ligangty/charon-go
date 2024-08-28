@@ -19,10 +19,15 @@ import (
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
+const DEFAULT_MIME_TYPE = "application/octet-stream"
+const CHECKSUM_META_KEY = "checksum"
+
 type s3ClientIface interface {
 	s3.ListObjectsV2APIClient
 	s3.HeadObjectAPIClient
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+	PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
+	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 }
 
 type S3Client struct {
@@ -182,6 +187,88 @@ func (c *S3Client) FileExistsInBucket(bucketName, path string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// Deletes file in s3 bucket, regardless of any extra
+// information like product and version info.
+//
+// * Warning: this will directly delete the files even if
+// it has lots of product info, so please be careful to use.
+// If you want to delete product artifact files, please use
+// delete_files
+func (c *S3Client) SimpleDeleteFile(filePath string, target [2]string) bool {
+	bucket := target[0]
+	prefix := target[1]
+	pathKey := path.Join(prefix, filePath)
+	// try:
+	existed, _ := c.FileExistsInBucket(bucket, pathKey)
+	if existed {
+		_, err := c.client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(pathKey),
+		})
+		if err != nil {
+			logger.Error(fmt.Sprintf("Error: Can not delete file due to error: %s", err.Error()))
+			return false
+		}
+		return true
+	} else {
+		logger.Warn(
+			fmt.Sprintf("Warning: File %s does not exist in S3 bucket %s, will ignore its deleting",
+				filePath, bucket))
+		return true
+	}
+}
+
+// Uploads file to s3 bucket, regardless of any extra
+// information like product and version info.
+//
+// * Warning: If force is set True, it will directly overwrite
+// the files even if it has lots of product info, so please be
+// careful to use. If you want to upload product artifact files,
+// please use upload_files()
+func (c *S3Client) SimpleUploadFile(filePath, fileContent string,
+	target [2]string, mimeType string, checksumSHA1 string, force bool) error {
+	bucket := target[0]
+	prefix := target[1]
+	pathKey := path.Join(prefix, filePath)
+	logger.Debug(fmt.Sprintf("Uploading %s to bucket %s", pathKey, bucket))
+	existed, err := c.FileExistsInBucket(bucket, pathKey)
+	if err != nil {
+		logger.Error(
+			fmt.Sprintf("Error: file existence check failed due to error: %s", err))
+		return err
+	}
+
+	contentType := mimeType
+	if strings.TrimSpace(contentType) == "" {
+		contentType = DEFAULT_MIME_TYPE
+	}
+	if !existed || force {
+		fMeta := map[string]string{}
+		if strings.TrimSpace(checksumSHA1) != "" {
+			fMeta[CHECKSUM_META_KEY] = checksumSHA1
+		}
+		if !c.dry_run {
+			_, err := c.client.PutObject(context.TODO(), &s3.PutObjectInput{
+				Bucket:      aws.String(bucket),
+				Key:         aws.String(pathKey),
+				Body:        strings.NewReader(fileContent),
+				ContentType: aws.String(contentType),
+				Metadata:    fMeta,
+			})
+			if err != nil {
+				logger.Error(fmt.Sprintf(
+					"ERROR: file %s not uploaded to bucket %s due to error: %s ",
+					filePath, bucket, err))
+				return err
+			}
+			logger.Debug(fmt.Sprintf("Uploaded %s to bucket %s", pathKey, bucket))
+		}
+	} else {
+		return fmt.Errorf("error: file %s already exists, upload is forbiden", pathKey)
+	}
+	return nil
 }
 
 // Upload a list of files to s3 bucket.

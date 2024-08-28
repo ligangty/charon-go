@@ -34,9 +34,28 @@ func main() {
 	// 	fmt.Println(c)
 	// }
 
-	ok, err := s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/index.html")
-	if err != nil {
-		panic(err)
+	// ok, err := s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/index.html")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// fmt.Println(ok)
+
+	err = s3Client.SimpleUploadFile("org/test/simpletest", "this is a test",
+		[2]string{"dev-maven-bucket", "ga"}, "plain/text", "", true)
+	if err == nil {
+		fmt.Println("Upload Successfully!")
+	} else {
+		fmt.Printf("Error: %s", err)
 	}
+	ok, _ := s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/test/simpletest")
 	fmt.Println(ok)
+	ok = s3Client.SimpleDeleteFile("org/test/simpletest", [2]string{"dev-maven-bucket", "ga"})
+	if ok {
+		fmt.Println("Delete Successfully!")
+	} else {
+		fmt.Println("Delete not successfully!")
+	}
+	ok, _ = s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/test/simpletest")
+	fmt.Println(ok)
+
 }
