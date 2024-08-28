@@ -161,3 +161,59 @@ func TestDownloadFile(t *testing.T) {
 
 	os.Remove(path.Join("/tmp", testKey))
 }
+
+func TestListFolderContent(t *testing.T) {
+	all_files := []string{
+		"org/index.html",
+		"org/apache/index.html",
+		"org/apache/lucene/index.html",
+	}
+	s3client, err := S3ClientWithMock(MockAWSS3Client{
+		lsObjV2: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
+				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
+			}
+
+			contents := []types.Object{}
+			for _, f := range all_files {
+				contents = append(contents, types.Object{Key: aws.String(f)})
+			}
+
+			if params.Prefix != nil {
+				if *params.Prefix == "org/" {
+					contents = []types.Object{
+						{Key: aws.String(all_files[0])},
+						{Key: aws.String(path.Dir(all_files[1]) + "/")},
+					}
+				}
+				if *params.Prefix == "org/apache/" {
+					contents = []types.Object{
+						{Key: aws.String(all_files[1])},
+						{Key: aws.String(path.Dir(all_files[2]) + "/")},
+					}
+				}
+			}
+
+			return &s3.ListObjectsV2Output{
+				Contents: contents,
+			}, nil
+		},
+	})
+	assert.Nil(t, err)
+
+	contents := s3client.ListFolderContent("", "")
+	assert.Empty(t, contents)
+
+	contents = s3client.ListFolderContent(TEST_BUCKET, "")
+	assert.Equal(t, len(all_files), len(contents))
+
+	contents = s3client.ListFolderContent(TEST_BUCKET, "org")
+	assert.Equal(t, 2, len(contents))
+	assert.Contains(t, contents, all_files[0])
+	assert.Contains(t, contents, "org/apache/")
+
+	contents = s3client.ListFolderContent(TEST_BUCKET, "org/apache")
+	assert.Equal(t, 2, len(contents))
+	assert.Contains(t, contents, all_files[1])
+	assert.Contains(t, contents, "org/apache/lucene/")
+}

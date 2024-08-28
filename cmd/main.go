@@ -16,16 +16,21 @@ func main() {
 		logger.Error(err.Error())
 		os.Exit(1)
 	}
-	// files, ok := s3Client.GetFiles("dev-maven-bucket", "ga/org", "")
+
+	// files, ok := s3Client.GetFiles("dev-maven-bucket", "", "")
 	// if ok {
 	// 	for _, file := range files {
 	// 		fmt.Println(file)
 	// 	}
 	// }
 
-	content, err := s3Client.ReadFileContent("dev-maven-bucket", "ga/org/apache/activemq/artemis-native/2.6.3.jbossorg-001/artemis-native-2.6.3.jbossorg-001.jar")
-	if err == nil {
-		fmt.Println(content)
-	}
+	// content, err := s3Client.ReadFileContent("dev-maven-bucket", "ga/org/apache/activemq/artemis-native/2.6.3.jbossorg-001/artemis-native-2.6.3.jbossorg-001.jar")
+	// if err == nil {
+	// 	fmt.Println(content)
+	// }
 
+	content := s3Client.ListFolderContent("dev-maven-bucket", "ga/org/")
+	for _, c := range content {
+		fmt.Println(c)
+	}
 }

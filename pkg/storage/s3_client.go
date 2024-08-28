@@ -56,13 +56,12 @@ func NewS3Client(aws_profile string, con_limit int, dry_run bool) (*S3Client, er
 
 // Get the file names from s3 bucket. Can use prefix and suffix to filter the
 // files wanted. If some error happend, will return an empty file list and false result
-func (c *S3Client) GetFiles(bucketName string,
-	prefix string, suffix string) ([]string, bool) {
+func (c *S3Client) GetFiles(bucketName string, prefix string, suffix string) ([]string, bool) {
 	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(bucketName),
 	}
 	if strings.TrimSpace(prefix) != "" {
-		input.Prefix = &prefix
+		input.Prefix = aws.String(prefix)
 	}
 	result, err := c.client.ListObjectsV2(context.TODO(), input)
 	var contents []types.Object
@@ -126,6 +125,46 @@ func (c *S3Client) DownloadFile(bucketName, key, filePath string) error {
 	realFilePath := path.Join(filePath, key)
 	util.StoreFile(realFilePath, string(contentBytes), true)
 	return nil
+}
+
+// List the content in folder in an s3 bucket. Note it's not recursive,
+// which means the content only contains the items in that folder, but
+// not in its subfolders.
+func (c *S3Client) ListFolderContent(bucketName, folder string) []string {
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucketName),
+	}
+	if strings.HasSuffix(folder, "/") {
+		input.Prefix = aws.String(folder)
+	} else {
+		input.Prefix = aws.String(folder + "/")
+	}
+	input.Delimiter = aws.String("/")
+	paginator := s3.NewListObjectsV2Paginator(c.client, input)
+
+	contents := []string{}
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			logger.Error(fmt.Sprintf("[S3] ERROR: Can not get contents of %s from bucket %s due to error: %s", folder,
+				bucketName, err.Error()))
+			return []string{}
+		}
+
+		folders := page.CommonPrefixes
+		if len(folders) > 0 {
+			for _, f := range folders {
+				contents = append(contents, *f.Prefix)
+			}
+		}
+		files := page.Contents
+		if len(files) > 0 {
+			for _, f := range files {
+				contents = append(contents, *f.Key)
+			}
+		}
+	}
+	return contents
 }
 
 // Upload a list of files to s3 bucket.
