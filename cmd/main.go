@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"org.commonjava/charon/pkg/storage"
+	"org.commonjava/charon/pkg/util"
 )
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -49,7 +50,7 @@ func main() {
 	}
 	ok, _ := s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/test/simpletest")
 	fmt.Println(ok)
-	ok = s3Client.SimpleDeleteFile("org/test/simpletest", [2]string{"dev-maven-bucket", "ga"})
+	ok = s3Client.SimpleDeleteFile("org/test/simpletest", util.Target{Bucket: "dev-maven-bucket", Prefix: "ga"})
 	if ok {
 		fmt.Println("Delete Successfully!")
 	} else {

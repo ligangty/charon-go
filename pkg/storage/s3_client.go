@@ -63,9 +63,9 @@ func NewS3Client(aws_profile string, con_limit int, dry_run bool) (*S3Client, er
 
 // Get the file names from s3 bucket. Can use prefix and suffix to filter the
 // files wanted. If some error happend, will return an empty file list and false result
-func (c *S3Client) GetFiles(bucketName string, prefix string, suffix string) ([]string, bool) {
+func (c *S3Client) GetFiles(bucket string, prefix string, suffix string) ([]string, bool) {
 	input := &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(bucket),
 	}
 	if strings.TrimSpace(prefix) != "" {
 		input.Prefix = aws.String(prefix)
@@ -74,7 +74,7 @@ func (c *S3Client) GetFiles(bucketName string, prefix string, suffix string) ([]
 	var contents []types.Object
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not get files under %s in bucket %s due to error: %s ", prefix,
-			bucketName, err))
+			bucket, err))
 		return []string{}, false
 	} else {
 		contents = result.Contents
@@ -96,15 +96,15 @@ func (c *S3Client) GetFiles(bucketName string, prefix string, suffix string) ([]
 	return files, true
 }
 
-func (c *S3Client) getObject(bucketName, key string) ([]byte, error) {
+func (c *S3Client) getObject(bucket, key string) ([]byte, error) {
 	input := &s3.GetObjectInput{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	}
 	output, err := c.client.GetObject(context.TODO(), input)
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
-			bucketName, err))
+			bucket, err))
 		return nil, err
 	}
 	defer output.Body.Close()
@@ -112,21 +112,21 @@ func (c *S3Client) getObject(bucketName, key string) ([]byte, error) {
 	return io.ReadAll(output.Body)
 }
 
-func (c *S3Client) ReadFileContent(bucketName, key string) (string, error) {
-	contentBytes, err := c.getObject(bucketName, key)
+func (c *S3Client) ReadFileContent(bucket, key string) (string, error) {
+	contentBytes, err := c.getObject(bucket, key)
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
-			bucketName, err))
+			bucket, err))
 		return "", err
 	}
 	return string(contentBytes[:]), nil
 }
 
-func (c *S3Client) DownloadFile(bucketName, key, filePath string) error {
-	contentBytes, err := c.getObject(bucketName, key)
+func (c *S3Client) DownloadFile(bucket, key, filePath string) error {
+	contentBytes, err := c.getObject(bucket, key)
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not download file %s in bucket %s due to error: %s ", key,
-			bucketName, err))
+			bucket, err))
 		return err
 	}
 	realFilePath := path.Join(filePath, key)
@@ -137,9 +137,9 @@ func (c *S3Client) DownloadFile(bucketName, key, filePath string) error {
 // List the content in folder in an s3 bucket. Note it's not recursive,
 // which means the content only contains the items in that folder, but
 // not in its subfolders.
-func (c *S3Client) ListFolderContent(bucketName, folder string) []string {
+func (c *S3Client) ListFolderContent(bucket, folder string) []string {
 	input := &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(bucket),
 	}
 	if strings.HasSuffix(folder, "/") {
 		input.Prefix = aws.String(folder)
@@ -154,7 +154,7 @@ func (c *S3Client) ListFolderContent(bucketName, folder string) []string {
 		page, err := paginator.NextPage(context.TODO())
 		if err != nil {
 			logger.Error(fmt.Sprintf("[S3] ERROR: Can not get contents of %s from bucket %s due to error: %s", folder,
-				bucketName, err.Error()))
+				bucket, err.Error()))
 			return []string{}
 		}
 
@@ -174,9 +174,9 @@ func (c *S3Client) ListFolderContent(bucketName, folder string) []string {
 	return contents
 }
 
-func (c *S3Client) FileExistsInBucket(bucketName, path string) (bool, error) {
+func (c *S3Client) FileExistsInBucket(bucket, path string) (bool, error) {
 	_, err := c.client.HeadObject(context.TODO(), &s3.HeadObjectInput{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(bucket),
 		Key:    aws.String(path),
 	})
 	if err != nil {
@@ -196,9 +196,9 @@ func (c *S3Client) FileExistsInBucket(bucketName, path string) (bool, error) {
 // it has lots of product info, so please be careful to use.
 // If you want to delete product artifact files, please use
 // delete_files
-func (c *S3Client) SimpleDeleteFile(filePath string, target [2]string) bool {
-	bucket := target[0]
-	prefix := target[1]
+func (c *S3Client) SimpleDeleteFile(filePath string, target util.Target) bool {
+	bucket := target.Bucket
+	prefix := target.Prefix
 	pathKey := path.Join(prefix, filePath)
 	// try:
 	existed, _ := c.FileExistsInBucket(bucket, pathKey)
@@ -292,11 +292,23 @@ func (c *S3Client) SimpleUploadFile(filePath, fileContent string,
 // Note that if file name match
 //
 // * Return all failed to upload files due to any exceptions.
-func (c *S3Client) UploadFiles(file_paths []string, targets [][]string,
+func (c *S3Client) UploadFiles(file_paths []string, targets []util.Target,
 	product string, root string) {
 	realRoot := root
 	if strings.TrimSpace(realRoot) == "" {
 		realRoot = "/"
 	}
-	//TODO: not implemented yet
+
+	// mainTarget := targets[0]
+	// mainBucket := mainTarget.Bucket
+	// keyPrefix := mainTarget.Prefix
+	// var extraTargets []util.Target
+	// if len(targets) > 1 {
+	// 	for i, t := range targets {
+	// 		if i >= 1 {
+	// 			extraTargets[i] = t
+	// 		}
+	// 	}
+	// }
+	// var extraPrefixedBuckets [][]string
 }
