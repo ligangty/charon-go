@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.61.0
 	github.com/aws/smithy-go v1.20.4
 	github.com/stretchr/testify v1.9.0
+	golang.org/x/sync v0.8.0
 )
 
 require (
