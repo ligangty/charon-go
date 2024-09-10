@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,26 +29,27 @@ type s3ClientIface interface {
 	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 	PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
+	CopyObject(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
 }
 
 type S3Client struct {
-	aws_profile string
-	con_limit   int
-	dry_run     bool
-	client      s3ClientIface
+	awsProfile string
+	conLimit   int
+	dryRun     bool
+	client     s3ClientIface
 }
 
-func NewS3Client(aws_profile string, con_limit int, dry_run bool) (*S3Client, error) {
+func NewS3Client(awsProfile string, conLimit int, dryRun bool) (*S3Client, error) {
 	s3Client := &S3Client{
-		aws_profile: aws_profile,
-		con_limit:   con_limit,
-		dry_run:     dry_run,
+		awsProfile: awsProfile,
+		conLimit:   conLimit,
+		dryRun:     dryRun,
 	}
 
 	var cfg aws.Config
 	var err error
-	if strings.TrimSpace(s3Client.aws_profile) != "" {
-		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithSharedConfigProfile(aws_profile))
+	if strings.TrimSpace(s3Client.awsProfile) != "" {
+		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithSharedConfigProfile(awsProfile))
 	} else {
 		cfg, err = config.LoadDefaultConfig(context.TODO())
 	}
@@ -96,7 +98,7 @@ func (c *S3Client) GetFiles(bucket string, prefix string, suffix string) ([]stri
 	return files, true
 }
 
-func (c *S3Client) getObject(bucket, key string) ([]byte, error) {
+func (c *S3Client) getObject(bucket, key string) ([]byte, map[string]string, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -105,15 +107,15 @@ func (c *S3Client) getObject(bucket, key string) ([]byte, error) {
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
 			bucket, err))
-		return nil, err
+		return nil, nil, err
 	}
 	defer output.Body.Close()
-
-	return io.ReadAll(output.Body)
+	content, err := io.ReadAll(output.Body)
+	return content, output.Metadata, err
 }
 
 func (c *S3Client) ReadFileContent(bucket, key string) (string, error) {
-	contentBytes, err := c.getObject(bucket, key)
+	contentBytes, _, err := c.getObject(bucket, key)
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
 			bucket, err))
@@ -123,7 +125,7 @@ func (c *S3Client) ReadFileContent(bucket, key string) (string, error) {
 }
 
 func (c *S3Client) DownloadFile(bucket, key, filePath string) error {
-	contentBytes, err := c.getObject(bucket, key)
+	contentBytes, _, err := c.getObject(bucket, key)
 	if err != nil {
 		logger.Error(fmt.Sprintf("[S3] ERROR: Can not download file %s in bucket %s due to error: %s ", key,
 			bucket, err))
@@ -249,7 +251,7 @@ func (c *S3Client) SimpleUploadFile(filePath, fileContent string,
 		if strings.TrimSpace(checksumSHA1) != "" {
 			fMeta[CHECKSUM_META_KEY] = checksumSHA1
 		}
-		if !c.dry_run {
+		if !c.dryRun {
 			_, err := c.client.PutObject(context.TODO(), &s3.PutObjectInput{
 				Bucket:      aws.String(bucket),
 				Key:         aws.String(pathKey),
@@ -292,23 +294,208 @@ func (c *S3Client) SimpleUploadFile(filePath, fileContent string,
 // Note that if file name match
 //
 // * Return all failed to upload files due to any exceptions.
-func (c *S3Client) UploadFiles(file_paths []string, targets []util.Target,
-	product string, root string) {
+func (c *S3Client) UploadFiles(filePaths []string, targets []util.Target,
+	product string, root string) []string {
 	realRoot := root
 	if strings.TrimSpace(realRoot) == "" {
 		realRoot = "/"
 	}
 
-	// mainTarget := targets[0]
-	// mainBucket := mainTarget.Bucket
-	// keyPrefix := mainTarget.Prefix
-	// var extraTargets []util.Target
-	// if len(targets) > 1 {
-	// 	for i, t := range targets {
-	// 		if i >= 1 {
-	// 			extraTargets[i] = t
-	// 		}
-	// 	}
-	// }
-	// var extraPrefixedBuckets [][]string
+	mainTarget := targets[0]
+	mainBucket := mainTarget.Bucket
+	keyPrefix := mainTarget.Prefix
+	var extraPrefixedBuckets []util.Target
+	if len(targets) > 1 {
+		extraPrefixedBuckets = make([]util.Target, len(targets))
+		for i, t := range targets {
+			if i >= 1 {
+				extraPrefixedBuckets[i] = t
+			}
+		}
+	}
+	return doPathCutAnd(product, mainBucket, keyPrefix, filePaths, extraPrefixedBuckets, c.pathUploadHandler, root)
+}
+
+func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePath, fPath string, index,
+	total int, extraPrefixedBuckets []util.Target) bool {
+	if !util.IsFile(fullFilePath) {
+		logger.Warn(fmt.Sprintf("[S3] Warning: file %s does not exist during uploading. Product: %s",
+			fullFilePath, product))
+		return false
+	}
+	logger.Debug(fmt.Sprintf("[S3] (%d/%d) Uploading %s to bucket %s",
+		index, total, fullFilePath, mainBucket))
+	mainPathKey := fPath
+	if strings.TrimSpace(keyPrefix) != "" {
+		mainPathKey = path.Join(keyPrefix, fPath)
+	}
+	existed, err := c.FileExistsInBucket(mainBucket, mainPathKey)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[S3] Error: file existence check failed due to error: %s", err))
+		return false
+	}
+	sha1 := util.ReadSHA1(fullFilePath)
+	contentType := util.GuessMimetype(fullFilePath)
+	if contentType == "" {
+		contentType = DEFAULT_MIME_TYPE
+	}
+	if !existed {
+		fMeta := map[string]string{}
+		if sha1 != "" {
+			fMeta[CHECKSUM_META_KEY] = sha1
+		}
+		if !c.dryRun {
+			var err error
+			if len(fMeta) > 0 {
+				_, err = c.client.PutObject(context.TODO(), &s3.PutObjectInput{
+					Bucket:      aws.String(mainBucket),
+					Key:         aws.String(mainPathKey),
+					Body:        strings.NewReader(fullFilePath),
+					ContentType: aws.String(contentType),
+					Metadata:    fMeta,
+				})
+			} else {
+				_, err = c.client.PutObject(context.TODO(), &s3.PutObjectInput{
+					Bucket:      aws.String(mainBucket),
+					Key:         aws.String(mainPathKey),
+					Body:        strings.NewReader(fullFilePath),
+					ContentType: aws.String(contentType),
+				})
+			}
+			if err != nil {
+				logger.Error(fmt.Sprintf("[S3] ERROR: file %s not uploaded to bucket %s due to error: %s ", fullFilePath,
+					mainBucket, err))
+				return false
+			}
+			if strings.TrimSpace(product) != "" {
+				c.updateProductInfo(mainPathKey, mainBucket, []string{product})
+			}
+		}
+		logger.Debug(fmt.Sprintf("[S3] Uploaded %s to bucket %s", fPath, mainBucket))
+	} else {
+		c.handleExisted(fullFilePath, sha1, mainPathKey, mainBucket, product)
+	}
+
+	for _, target := range extraPrefixedBuckets {
+		extraBucket := target.Bucket
+		extraPrefix := target.Prefix
+		extraPathKey := fPath
+		if strings.TrimSpace(extraPrefix) != "" {
+			extraPathKey = path.Join(extraPrefix, fPath)
+		}
+		logger.Debug(fmt.Sprintf("Copyinging %s from bucket %s to bucket %s",
+			fullFilePath, mainBucket, extraBucket))
+		existed, _ := c.FileExistsInBucket(extraBucket, extraPathKey)
+		if !existed {
+			if !c.dryRun {
+				ok := c.copyBetweenBucket(mainBucket, mainPathKey, extraBucket, extraPathKey)
+				if !ok {
+					logger.Error(fmt.Sprintf("[S3] ERROR: copying failure happend for file %s to bucket %s due to error: %s ",
+						fullFilePath, extraBucket, err))
+					return false
+				}
+				if strings.TrimSpace(product) != "" {
+					c.updateProductInfo(extraPathKey, extraBucket, []string{product})
+				}
+			}
+		} else {
+			c.handleExisted(fullFilePath, sha1, extraPathKey, extraBucket, product)
+		}
+	}
+	return true
+}
+
+func (c *S3Client) handleExisted(filePath, fileSHA1, pathKey, bucketName, product string) bool {
+	logger.Debug(fmt.Sprintf("File %s already exists in bucket %s, check if need to update product.",
+		pathKey, bucketName))
+	_, fMeta, err := c.getObject(bucketName, pathKey)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[S3] Can not get object for %s due to error: %s", pathKey, err))
+		return false
+	}
+	checksum := ""
+	if value, ok := fMeta[CHECKSUM_META_KEY]; ok {
+		checksum = value
+	}
+	if checksum != "" && strings.TrimSpace(checksum) != fileSHA1 {
+		logger.Warn(fmt.Sprintf("Warning: checksum check failed. The file %s is different from the one in S3 bucket %s. Product: %s",
+			pathKey, bucketName, product))
+		return false
+	}
+
+	prods, ok := c.getProductInfo(pathKey, bucketName)
+	if !c.dryRun && ok && !slices.Contains(prods, product) {
+		logger.Debug(
+			fmt.Sprintf("File %s has new product, updating the product %s",
+				filePath,
+				product,
+			))
+		prods = append(prods, product)
+		ok := c.updateProductInfo(pathKey, bucketName, prods)
+		return ok
+	}
+	return true
+}
+
+func (c *S3Client) getProductInfo(file, bucketName string) ([]string, bool) {
+	logger.Debug(fmt.Sprintf("[S3] Getting product infomation for file %s", file))
+	prodInfoFile := file + util.PROD_INFO_SUFFIX
+	infoFileContent, err := c.ReadFileContent(bucketName, prodInfoFile)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("[S3] WARN: Can not get product info for file %s due to error: %s", file, err))
+		return []string{}, false
+	}
+	var prods []string
+	for _, p := range strings.Split(infoFileContent, ",") {
+		prods = append(prods, strings.TrimSpace(p))
+	}
+	logger.Debug(fmt.Sprintf("[S3] Got product information as below %s", prods))
+	return prods, true
+}
+
+func (c *S3Client) updateProductInfo(file, bucketName string, prods []string) bool {
+	//TODO: not implemented
+	return false
+}
+
+func (c *S3Client) copyBetweenBucket(source, sourceKey, target, targetKey string) bool {
+	logger.Debug(fmt.Sprintf("Copying file %s from bucket %s to target %s as %s",
+		sourceKey, source, target, targetKey))
+	_, err := c.client.CopyObject(context.TODO(), &s3.CopyObjectInput{
+		Bucket:     aws.String(target),
+		CopySource: aws.String(fmt.Sprintf("%v/%v", source, sourceKey)),
+		Key:        aws.String(targetKey),
+	})
+	if err != nil {
+		logger.Error(fmt.Sprintf("ERROR: Can not copy file %s to bucket %s due to error: %s",
+			sourceKey, target, err))
+		return false
+	}
+	return true
+}
+
+func doPathCutAnd(product, mainBucket, keyPrefix string,
+	filePaths []string, extraPrefixedBuckets []util.Target,
+	pathHandler func(a, b, c, d, e string, f, g int, h []util.Target) bool,
+	root string) []string {
+	slashRoot := root
+	if strings.TrimSpace(root) == "" {
+		slashRoot = "/"
+	}
+	if !strings.HasSuffix(root, "/") {
+		slashRoot = slashRoot + "/"
+	}
+	var failedPaths []string
+	index := 1
+	filePathsCount := len(filePaths)
+	for _, fullPath := range filePaths {
+		fPath := strings.TrimPrefix(fullPath, slashRoot)
+		if pathHandler(product, mainBucket,
+			keyPrefix, fullPath, fPath, index,
+			filePathsCount, extraPrefixedBuckets) {
+			failedPaths = append(failedPaths, fullPath)
+		}
+		index += 1
+	}
+	return failedPaths
 }

@@ -1,22 +1,18 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
-
-	"org.commonjava/charon/pkg/storage"
-	"org.commonjava/charon/pkg/util"
 )
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 func main() {
-	s3Client, err := storage.NewS3Client("ronda", 0, false)
-	if err != nil {
-		logger.Error(err.Error())
-		os.Exit(1)
-	}
+	// s3Client, err := storage.NewS3Client("ronda", 0, false)
+	// if err != nil {
+	// 	logger.Error(err.Error())
+	// 	os.Exit(1)
+	// }
 
 	// files, ok := s3Client.GetFiles("dev-maven-bucket", "", "")
 	// if ok {
@@ -41,22 +37,22 @@ func main() {
 	// }
 	// fmt.Println(ok)
 
-	err = s3Client.SimpleUploadFile("org/test/simpletest", "this is a test",
-		[2]string{"dev-maven-bucket", "ga"}, "plain/text", "", true)
-	if err == nil {
-		fmt.Println("Upload Successfully!")
-	} else {
-		fmt.Printf("Error: %s", err)
-	}
-	ok, _ := s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/test/simpletest")
-	fmt.Println(ok)
-	ok = s3Client.SimpleDeleteFile("org/test/simpletest", util.Target{Bucket: "dev-maven-bucket", Prefix: "ga"})
-	if ok {
-		fmt.Println("Delete Successfully!")
-	} else {
-		fmt.Println("Delete not successfully!")
-	}
-	ok, _ = s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/test/simpletest")
-	fmt.Println(ok)
+	// err = s3Client.SimpleUploadFile("org/test/simpletest", "this is a test",
+	// 	[2]string{"dev-maven-bucket", "ga"}, "plain/text", "", true)
+	// if err == nil {
+	// 	fmt.Println("Upload Successfully!")
+	// } else {
+	// 	fmt.Printf("Error: %s", err)
+	// }
+	// ok, _ := s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/test/simpletest")
+	// fmt.Println(ok)
+	// ok = s3Client.SimpleDeleteFile("org/test/simpletest", util.Target{Bucket: "dev-maven-bucket", Prefix: "ga"})
+	// if ok {
+	// 	fmt.Println("Delete Successfully!")
+	// } else {
+	// 	fmt.Println("Delete not successfully!")
+	// }
+	// ok, _ = s3Client.FileExistsInBucket("dev-maven-bucket", "ga/org/test/simpletest")
+	// fmt.Println(ok)
 
 }

@@ -25,6 +25,7 @@ type MockAWSS3Client struct {
 	getObj  func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 	putObj  func(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	delObj  func(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
+	cpObj   func(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
 }
 
 func (m MockAWSS3Client) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
@@ -41,6 +42,9 @@ func (m MockAWSS3Client) PutObject(ctx context.Context, params *s3.PutObjectInpu
 }
 func (m MockAWSS3Client) DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
 	return m.delObj(ctx, params, optFns...)
+}
+func (m MockAWSS3Client) CopyObject(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
+	return m.cpObj(ctx, params, optFns...)
 }
 func S3ClientWithMock(mockAWSS3Client MockAWSS3Client) (*S3Client, error) {
 	s3client, err := NewS3Client("", 10, false)
@@ -267,5 +271,9 @@ func TestSimpleUploadFile(t *testing.T) {
 }
 
 func TestSimpleDeleteFile(t *testing.T) {
+	assert.Fail(t, "not implemented yet!")
+}
+
+func TestUploadFiles(t *testing.T) {
 	assert.Fail(t, "not implemented yet!")
 }
