@@ -98,22 +98,6 @@ func (c *S3Client) GetFiles(bucket string, prefix string, suffix string) ([]stri
 	return files, true
 }
 
-func (c *S3Client) getObject(bucket, key string) ([]byte, map[string]string, error) {
-	input := &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	}
-	output, err := c.client.GetObject(context.TODO(), input)
-	if err != nil {
-		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
-			bucket, err))
-		return nil, nil, err
-	}
-	defer output.Body.Close()
-	content, err := io.ReadAll(output.Body)
-	return content, output.Metadata, err
-}
-
 func (c *S3Client) ReadFileContent(bucket, key string) (string, error) {
 	contentBytes, _, err := c.getObject(bucket, key)
 	if err != nil {
@@ -176,10 +160,10 @@ func (c *S3Client) ListFolderContent(bucket, folder string) []string {
 	return contents
 }
 
-func (c *S3Client) FileExistsInBucket(bucket, path string) (bool, error) {
+func (c *S3Client) FileExistsInBucket(bucket, fPath string) (bool, error) {
 	_, err := c.client.HeadObject(context.TODO(), &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
-		Key:    aws.String(path),
+		Key:    aws.String(fPath),
 	})
 	if err != nil {
 		var ae *types.NotFound
@@ -403,6 +387,109 @@ func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePat
 		}
 	}
 	return true
+}
+
+// Deletes a list of files to s3 bucket.
+//
+// * Use the cut down file path as s3 key. The cut
+// down way is move root from the file path if it starts with root.
+// Example: if file_path is /tmp/maven-repo/org/apache/.... and
+// root is /tmp/maven-repo Then the key will be org/apache/.....
+//
+// * The removing will happen with conditions of product checking. First the deletion
+// will remove The product from the file metadata "rh-products". After the metadata
+// removing, if there still are extra products left in that metadata, the file will not
+// really be removed from the bucket. Only when the metadata is all cleared, the file
+// will be finally removed from bucket.
+func (c *S3Client) DeleteFiles(filePaths []string, target util.Target,
+	product, root string) []string {
+	bucket := target.Bucket
+	prefix := target.Prefix
+	return doPathCutAnd(product, bucket, prefix, filePaths, nil, c.pathDeleteHandler, root)
+}
+
+func (c *S3Client) pathDeleteHandler(product, mainBucket, keyPrefix, fullFilePath, fPath string, index,
+	total int, extraPrefixedBuckets []util.Target) bool {
+	logger.Debug(fmt.Sprintf("(%d/%d) Deleting %s from bucket %s", index, total, fPath, mainBucket))
+	pathKey := fPath
+	if strings.TrimSpace(keyPrefix) != "" {
+		pathKey = path.Join(keyPrefix, fPath)
+	}
+	existed, err := c.FileExistsInBucket(mainBucket, pathKey)
+	if err != nil {
+		logger.Error(
+			fmt.Sprintf("Error: file existence check failed due to error: %s", err))
+		return false
+	}
+	if existed {
+		// NOTE: If we're NOT using the product key to track collisions
+		// (in the case of metadata), then this prods array will remain
+		// empty, and we will just delete the file, below. Otherwise,
+		// the product reference counts will be used (from object metadata).
+		prods := []string{}
+		if strings.TrimSpace(product) != "" {
+			prds, ok := c.getProductInfo(pathKey, mainBucket)
+			if !ok {
+				return false
+			}
+			if slices.Contains(prods, product) {
+				prds = util.RemoveFromStringSlice(prods, product)
+			}
+			prods = prds
+		}
+		if len(prods) > 0 {
+			logger.Debug(
+				fmt.Sprintf("File %s has other products overlapping, will remove %s from its metadata", fPath, product))
+			ok := c.updateProductInfo(pathKey, mainBucket, prods)
+			if !ok {
+				logger.Error(
+					fmt.Sprintf("ERROR: Failed to update metadata of file %s", fPath))
+				return false
+			}
+			logger.Debug(fmt.Sprintf("Removed product %s from metadata of file %s",
+				product, fPath))
+		} else if len(prods) == 0 {
+			if !c.dryRun {
+				_, err := c.client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+					Bucket: aws.String(mainBucket),
+					Key:    aws.String(pathKey),
+				})
+				if err != nil {
+					logger.Error(
+						fmt.Sprintf("ERROR: file %s failed to delete from bucket %s due to error: %s ",
+							fullFilePath, mainBucket, err))
+					return false
+				}
+				ok := c.updateProductInfo(pathKey, mainBucket, prods)
+				if !ok {
+					return false
+				}
+				logger.Info(fmt.Sprintf("[S3] Deleted %s from bucket %s", fPath, mainBucket))
+				return true
+			}
+		}
+	} else {
+		logger.Debug(fmt.Sprintf("File %s does not exist in s3 bucket %s, skip deletion.",
+			fPath, mainBucket))
+		return true
+	}
+	return true
+}
+
+func (c *S3Client) getObject(bucket, key string) ([]byte, map[string]string, error) {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}
+	output, err := c.client.GetObject(context.TODO(), input)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[S3] ERROR: Can not read file %s in bucket %s due to error: %s ", key,
+			bucket, err))
+		return nil, nil, err
+	}
+	defer output.Body.Close()
+	content, err := io.ReadAll(output.Body)
+	return content, output.Metadata, err
 }
 
 func (c *S3Client) handleExisted(filePath, fileSHA1, pathKey, bucketName, product string) bool {
