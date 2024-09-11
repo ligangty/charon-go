@@ -183,4 +183,6 @@ const (
 	DEFAULT_ERRORS_LOG = "errors.log"
 
 	DEFAULT_REGISTRY = "localhost"
+
+	CONFIG_FILE = "charon.yaml"
 )

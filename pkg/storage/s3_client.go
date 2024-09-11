@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	cfg "org.commonjava/charon/pkg/config"
 	"org.commonjava/charon/pkg/util"
 )
 
@@ -182,7 +183,7 @@ func (c *S3Client) FileExistsInBucket(bucket, fPath string) (bool, error) {
 // it has lots of product info, so please be careful to use.
 // If you want to delete product artifact files, please use
 // delete_files
-func (c *S3Client) SimpleDeleteFile(filePath string, target util.Target) bool {
+func (c *S3Client) SimpleDeleteFile(filePath string, target cfg.Target) bool {
 	bucket := target.Bucket
 	prefix := target.Prefix
 	pathKey := path.Join(prefix, filePath)
@@ -278,7 +279,7 @@ func (c *S3Client) SimpleUploadFile(filePath, fileContent string,
 // Note that if file name match
 //
 // * Return all failed to upload files due to any exceptions.
-func (c *S3Client) UploadFiles(filePaths []string, targets []util.Target,
+func (c *S3Client) UploadFiles(filePaths []string, targets []cfg.Target,
 	product string, root string) []string {
 	realRoot := root
 	if strings.TrimSpace(realRoot) == "" {
@@ -288,9 +289,9 @@ func (c *S3Client) UploadFiles(filePaths []string, targets []util.Target,
 	mainTarget := targets[0]
 	mainBucket := mainTarget.Bucket
 	keyPrefix := mainTarget.Prefix
-	var extraPrefixedBuckets []util.Target
+	var extraPrefixedBuckets []cfg.Target
 	if len(targets) > 1 {
-		extraPrefixedBuckets = make([]util.Target, len(targets))
+		extraPrefixedBuckets = make([]cfg.Target, len(targets))
 		for i, t := range targets {
 			if i >= 1 {
 				extraPrefixedBuckets[i] = t
@@ -301,7 +302,7 @@ func (c *S3Client) UploadFiles(filePaths []string, targets []util.Target,
 }
 
 func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePath, fPath string, index,
-	total int, extraPrefixedBuckets []util.Target) bool {
+	total int, extraPrefixedBuckets []cfg.Target) bool {
 	if !util.IsFile(fullFilePath) {
 		logger.Warn(fmt.Sprintf("[S3] Warning: file %s does not exist during uploading. Product: %s",
 			fullFilePath, product))
@@ -401,7 +402,7 @@ func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePat
 // removing, if there still are extra products left in that metadata, the file will not
 // really be removed from the bucket. Only when the metadata is all cleared, the file
 // will be finally removed from bucket.
-func (c *S3Client) DeleteFiles(filePaths []string, target util.Target,
+func (c *S3Client) DeleteFiles(filePaths []string, target cfg.Target,
 	product, root string) []string {
 	bucket := target.Bucket
 	prefix := target.Prefix
@@ -409,7 +410,7 @@ func (c *S3Client) DeleteFiles(filePaths []string, target util.Target,
 }
 
 func (c *S3Client) pathDeleteHandler(product, mainBucket, keyPrefix, fullFilePath, fPath string, index,
-	total int, extraPrefixedBuckets []util.Target) bool {
+	total int, extraPrefixedBuckets []cfg.Target) bool {
 	logger.Debug(fmt.Sprintf("(%d/%d) Deleting %s from bucket %s", index, total, fPath, mainBucket))
 	pathKey := fPath
 	if strings.TrimSpace(keyPrefix) != "" {
@@ -562,8 +563,8 @@ func (c *S3Client) copyBetweenBucket(source, sourceKey, target, targetKey string
 }
 
 func doPathCutAnd(product, mainBucket, keyPrefix string,
-	filePaths []string, extraPrefixedBuckets []util.Target,
-	pathHandler func(a, b, c, d, e string, f, g int, h []util.Target) bool,
+	filePaths []string, extraPrefixedBuckets []cfg.Target,
+	pathHandler func(a, b, c, d, e string, f, g int, h []cfg.Target) bool,
 	root string) []string {
 	slashRoot := root
 	if strings.TrimSpace(root) == "" {

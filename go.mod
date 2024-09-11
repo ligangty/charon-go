@@ -9,6 +9,7 @@ require (
 	github.com/aws/smithy-go v1.20.4
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/sync v0.8.0
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
