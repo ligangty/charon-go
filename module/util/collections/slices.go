@@ -1,4 +1,4 @@
-package util
+package collections
 
 func RemoveFromStringSlice(s []string, e string) []string {
 	set := map[string]bool{}

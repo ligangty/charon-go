@@ -15,8 +15,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	cfg "org.commonjava/charon/pkg/config"
-	"org.commonjava/charon/pkg/util"
+	cfg "org.commonjava/charon/module/config"
+	"org.commonjava/charon/module/util"
+	"org.commonjava/charon/module/util/collections"
+	"org.commonjava/charon/module/util/files"
 )
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -117,7 +119,7 @@ func (c *S3Client) DownloadFile(bucket, key, filePath string) error {
 		return err
 	}
 	realFilePath := path.Join(filePath, key)
-	util.StoreFile(realFilePath, string(contentBytes), true)
+	files.StoreFile(realFilePath, string(contentBytes), true)
 	return nil
 }
 
@@ -303,7 +305,7 @@ func (c *S3Client) UploadFiles(filePaths []string, targets []cfg.Target,
 
 func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePath, fPath string, index,
 	total int, extraPrefixedBuckets []cfg.Target) bool {
-	if !util.IsFile(fullFilePath) {
+	if !files.IsFile(fullFilePath) {
 		logger.Warn(fmt.Sprintf("[S3] Warning: file %s does not exist during uploading. Product: %s",
 			fullFilePath, product))
 		return false
@@ -319,8 +321,8 @@ func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePat
 		logger.Error(fmt.Sprintf("[S3] Error: file existence check failed due to error: %s", err))
 		return false
 	}
-	sha1 := util.ReadSHA1(fullFilePath)
-	contentType := util.GuessMimetype(fullFilePath)
+	sha1 := files.ReadSHA1(fullFilePath)
+	contentType := files.GuessMimetype(fullFilePath)
 	if contentType == "" {
 		contentType = DEFAULT_MIME_TYPE
 	}
@@ -434,7 +436,7 @@ func (c *S3Client) pathDeleteHandler(product, mainBucket, keyPrefix, fullFilePat
 				return false
 			}
 			if slices.Contains(prods, product) {
-				prds = util.RemoveFromStringSlice(prods, product)
+				prds = collections.RemoveFromStringSlice(prods, product)
 			}
 			prods = prds
 		}

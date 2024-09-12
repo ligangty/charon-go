@@ -1,10 +1,19 @@
-package util
+package test
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"time"
+
+	"org.commonjava/charon/module/util/files"
 )
 
 type BaseTest struct {
@@ -23,7 +32,7 @@ func (b *BaseTest) TearDown() {
 	if strings.TrimSpace(b.oldHome) != "" && os.Getenv("HOME") != b.oldHome {
 		os.Setenv("HOME", b.oldHome)
 	}
-	if strings.TrimSpace(b.tmpDir) != "" && FileOrDirExists(b.tmpDir) {
+	if strings.TrimSpace(b.tmpDir) != "" && files.FileOrDirExists(b.tmpDir) {
 		os.RemoveAll(b.tmpDir)
 	}
 }
@@ -84,10 +93,47 @@ func (b *BaseTest) ChangeConfigContent(content string) {
 }
 
 func prepareConfig(configBase, fileContent string) error {
-	configPath := path.Join(configBase, CONFIG_FILE)
-	StoreFile(configPath, fileContent, true)
-	if !FileOrDirExists(configPath) {
+	configPath := path.Join(configBase, "charon.yaml")
+	files.StoreFile(configPath, fileContent, true)
+	if !files.FileOrDirExists(configPath) {
 		return fmt.Errorf("configuration initilization failed")
 	}
 	return nil
+}
+
+func MockHttpGetOkAnd(webRoot, expect string, todo func(port int)) {
+	MockHttpServerAnd(webRoot, expect, http.StatusOK, todo)
+}
+
+func MockHttpServerAnd(webRoot, expect string, statusCode int, todo func(port int)) {
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		panic(err)
+	}
+	srv := &http.Server{}
+	http.HandleFunc(webRoot, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(statusCode)
+		io.WriteString(w, expect)
+	})
+	httpServerExitDone := &sync.WaitGroup{}
+	httpServerExitDone.Add(1)
+	go func() {
+		defer httpServerExitDone.Done() // let main know we are done cleaning up
+
+		// always returns error. ErrServerClosed on graceful close
+		if err := srv.Serve(listener); err != http.ErrServerClosed {
+			// unexpected error. port in use?
+			log.Fatalf("Serve(): %v", err)
+		}
+	}()
+	time.Sleep(500 * time.Millisecond) // wait to start
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	fmt.Printf("Using port:%d\n", port)
+	todo(port)
+
+	if err := srv.Shutdown(context.TODO()); err != nil {
+		panic(err) // failure/timeout shutting down the server gracefully
+	}
+	httpServerExitDone.Wait()
 }

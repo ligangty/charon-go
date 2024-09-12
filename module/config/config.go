@@ -8,7 +8,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-	"org.commonjava/charon/pkg/util"
+	"org.commonjava/charon/module/util"
+	"org.commonjava/charon/module/util/files"
 )
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -51,7 +52,7 @@ func (c *CharonConfig) GetIgnoreSignatureSuffix(pkgType string) []string {
 
 func GetConfig() (*CharonConfig, error) {
 	cfgFilePath := path.Join(os.Getenv("HOME"), ".charon", util.CONFIG_FILE)
-	yamlFile, err := util.ReadFile(cfgFilePath)
+	yamlFile, err := files.ReadFile(cfgFilePath)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Can not read yaml file %s, error:  #%v ", cfgFilePath, err))
 		return nil, err

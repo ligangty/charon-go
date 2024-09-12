@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
-	"org.commonjava/charon/pkg/util"
+	"org.commonjava/charon/module/util/files"
 )
 
 const TEST_BUCKET = "test_bucket"
@@ -171,8 +171,8 @@ func TestDownloadFile(t *testing.T) {
 
 	err = s3client.DownloadFile(TEST_BUCKET, testKey, "/tmp")
 	assert.Nil(t, err)
-	assert.True(t, util.FileOrDirExists(path.Join("/tmp", testKey)))
-	fileContent, err := util.ReadFile(path.Join("/tmp", testKey))
+	assert.True(t, files.FileOrDirExists(path.Join("/tmp", testKey)))
+	fileContent, err := files.ReadFile(path.Join("/tmp", testKey))
 	assert.Nil(t, err)
 	assert.Equal(t, testContet, fileContent)
 

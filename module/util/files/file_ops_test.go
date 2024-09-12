@@ -1,4 +1,4 @@
-package util
+package files
 
 import (
 	"crypto"
@@ -51,7 +51,7 @@ func TestGuessMimetype(t *testing.T) {
 }
 
 func TestDigest(t *testing.T) {
-	testFile := path.Join("../../tests/input", "commons-lang3.zip")
+	testFile := path.Join("../../../tests/input", "commons-lang3.zip")
 	fmt.Println(testFile)
 	assert.Equal(t, "bd4fe0a8111df64430b6b419a91e4218ddf44734", Digest(testFile, crypto.SHA1))
 	assert.Equal(t,
@@ -69,14 +69,14 @@ func TestDigestContent(t *testing.T) {
 }
 
 func TestReadSHA1(t *testing.T) {
-	testFile := path.Join("../../tests/input", "commons-lang3.zip")
+	testFile := path.Join("../../../tests/input", "commons-lang3.zip")
 	// read the real sha1 hash
 	assert.Equal(t, "bd4fe0a8111df64430b6b419a91e4218ddf44734", Digest(testFile, crypto.SHA1))
 	// read hash from .sha1 file
 	assert.Equal(t, "bd4fe0a8111df64430b6b419a91e4218ddf44734", ReadSHA1(testFile))
 
 	// For .sha1 file itself, will use digest directly
-	testFile = path.Join("../../tests/input", "commons-lang3.zip.sha1")
+	testFile = path.Join("../../../tests/input", "commons-lang3.zip.sha1")
 	assert.Equal(t, Digest(testFile, crypto.SHA1), ReadSHA1(testFile))
 }
 

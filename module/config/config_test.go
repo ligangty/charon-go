@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"org.commonjava/charon/pkg/util"
+	"org.commonjava/charon/module/util/test"
 )
 
 func TestConfig(t *testing.T) {
-	var bt *util.BaseTest = &util.BaseTest{}
+	var bt *test.BaseTest = &test.BaseTest{}
 	bt.SetUp()
 	defer bt.TearDown()
 	conf, err := GetConfig()
@@ -36,7 +36,7 @@ func assertTarget(t *testing.T, expected, actual *Target) {
 }
 
 func TestNoConfig(t *testing.T) {
-	var bt *util.BaseTest = &util.BaseTest{}
+	var bt *test.BaseTest = &test.BaseTest{}
 	bt.ChangeHome()
 	defer bt.TearDown()
 	_, err := GetConfig()
@@ -49,7 +49,7 @@ func TestConfigMissingTargets(t *testing.T) {
 - ".*^(redhat).*"
 - ".*snapshot.*"
 `
-	var bt *util.BaseTest = &util.BaseTest{}
+	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	msg := "'targets' is a required property"
@@ -67,7 +67,7 @@ targets:
   ga:
   - prefix: ga
 `
-	var bt *util.BaseTest = &util.BaseTest{}
+	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	msg := "'bucket' is a required property"
@@ -85,7 +85,7 @@ targets:
   ga:
   - bucket: charon-test
 `
-	var bt *util.BaseTest = &util.BaseTest{}
+	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	conf, err := GetConfig()
@@ -104,7 +104,7 @@ targets:
   npm:
   - bucket: charon-npm-test
 `
-	var bt *util.BaseTest = &util.BaseTest{}
+	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	conf, err := GetConfig()
@@ -126,7 +126,7 @@ targets:
   ga:
   - bucket: charon-test
 `
-	var bt *util.BaseTest = &util.BaseTest{}
+	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	conf, err := GetConfig()
