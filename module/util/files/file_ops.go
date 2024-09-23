@@ -28,6 +28,12 @@ import (
 	"slices"
 )
 
+const (
+	MD5    crypto.Hash = crypto.MD5
+	SHA1   crypto.Hash = crypto.SHA1
+	SHA256 crypto.Hash = crypto.SHA256
+)
+
 func StoreFile(fileName string, content string, overWrite bool) {
 	exists := false
 	if FileOrDirExists(fileName) {

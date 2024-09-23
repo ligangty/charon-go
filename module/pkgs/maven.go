@@ -2,15 +2,21 @@ package pkgs
 
 import (
 	"bytes"
+	"crypto"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"text/template"
+
+	"org.commonjava/charon/module/config"
+	"org.commonjava/charon/module/util/files"
 )
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -216,6 +222,17 @@ func parseGAV(fullArtifactPath, root string) [3]string {
 	return [3]string{group, artifact, version}
 }
 
+func trimRoot(fullPath, root string) string {
+	fixedRoot := fixRoot(root)
+	if !strings.HasSuffix(fixedRoot, "/") {
+		fixedRoot += "/"
+	}
+
+	verPath := strings.TrimPrefix(fullPath, fixedRoot)
+	verPath = strings.TrimSuffix(verPath, "/")
+	return verPath
+}
+
 // Give a list of paths with pom files and parse the maven groupId, artifactId and version
 // from them. The result will be a dict like {groupId: {artifactId: [versions list]}}.
 // Root is like a prefix of the path which is not part of the maven GAV
@@ -241,16 +258,108 @@ func parseGAVs(pomPaths []string, root string) map[string]map[string][]string {
 	return gavs
 }
 
-func trimRoot(fullPath, root string) string {
+func genMetaFile(groupId, artifactId string,
+	versions []string, root string, digest bool) []string {
+	fixedRoot := fixRoot(root)
+	meta := &MavenMetadata{
+		GroupId:    groupId,
+		ArtifactId: artifactId,
+		versions:   versions,
+	}
+	content, err := meta.GenerateMetaFileContent()
+	if err != nil {
+		panic(err)
+	}
+
+	gPath := strings.Join(strings.Split(groupId, "."), "/")
+	metaFiles := []string{}
+	finalMetaPath := path.Join(fixedRoot, gPath, artifactId, MAVEN_METADATA_FILE)
+	files.StoreFile(finalMetaPath, content, true)
+	metaFiles = append(metaFiles, finalMetaPath)
+	if digest {
+		metaFiles = append(metaFiles, genAllDigestFiles(finalMetaPath)...)
+	}
+	return metaFiles
+}
+
+func genAllDigestFiles(metaFilePath string) []string {
+	md5Path := metaFilePath + ".md5"
+	sha1Path := metaFilePath + ".sha1"
+	sha256Path := metaFilePath + ".sha256"
+	digestFiles := []string{}
+	if genDigestFile(md5Path, metaFilePath, files.MD5) {
+		digestFiles = append(digestFiles, md5Path)
+	}
+	if genDigestFile(sha1Path, metaFilePath, files.SHA1) {
+		digestFiles = append(digestFiles, sha1Path)
+	}
+	if genDigestFile(sha256Path, metaFilePath, files.SHA256) {
+		digestFiles = append(digestFiles, sha256Path)
+	}
+	return digestFiles
+}
+
+func genDigestFile(hashFilePath, metaFilePath string, hashType crypto.Hash) bool {
+	digestContent := files.Digest(metaFilePath, hashType)
+	if digestContent != "" {
+		files.StoreFile(hashFilePath, digestContent, true)
+	} else {
+		logger.Warn(
+			fmt.Sprintf("Error: Can not create digest file %s for %s because of some missing folders",
+				hashFilePath, metaFilePath))
+		return false
+	}
+	return true
+}
+
+func fixRoot(root string) string {
 	slashRoot := strings.TrimSpace(root)
 	if slashRoot == "" {
 		slashRoot = "/"
 	}
-	if !strings.HasSuffix(slashRoot, "/") {
-		slashRoot += "/"
-	}
+	return slashRoot
+}
 
-	verPath := strings.TrimPrefix(fullPath, slashRoot)
-	verPath = strings.TrimSuffix(verPath, "/")
-	return verPath
+func wildcardMetadataPaths(paths []string) []string {
+	newPaths := []string{}
+	for _, p := range paths {
+		if strings.HasSuffix(p, MAVEN_METADATA_FILE) ||
+			strings.HasSuffix(p, MAVEN_ARCH_FILE) {
+			newPaths = append(newPaths, p[:len(p)-len(".xml")]+".*")
+		} else if strings.HasSuffix(p, ".md5") ||
+			strings.HasSuffix(p, ".sha1") ||
+			strings.HasSuffix(p, ".sha128") ||
+			strings.HasSuffix(p, ".sha256") {
+			continue
+		} else {
+			newPaths = append(newPaths, p)
+		}
+	}
+	return newPaths
+}
+
+func getSuffix(pkgType string, conf config.CharonConfig) []string {
+	if strings.TrimSpace(pkgType) != "" {
+		return conf.GetIgnoreSignatureSuffix(pkgType)
+	}
+	return []string{}
+}
+
+func isIgnored(fileName string, ignorePatterns []string) bool {
+	for _, ignoreName := range STANDARD_GENERATED_IGNORES {
+		if strings.TrimSpace(fileName) != "" &&
+			strings.HasPrefix(fileName, strings.TrimSpace(ignoreName)) {
+			logger.Info(
+				fmt.Sprintf("Ignoring standard generated Maven path: %s", fileName))
+			return true
+		}
+	}
+	if len(ignorePatterns) > 0 {
+		for _, dirs := range ignorePatterns {
+			if match, err := regexp.MatchString(dirs, fileName); match && err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
