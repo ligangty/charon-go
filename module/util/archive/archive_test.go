@@ -11,15 +11,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const TEST_INPUT_PATH = "../../../tests/input"
+
 func TestDetectPackage(t *testing.T) {
-	mvnZip := path.Join("../../tests/input", "commons-lang3.zip")
+	mvnZip := path.Join(TEST_INPUT_PATH, "commons-lang3.zip")
 	assert.Equal(t, NOT_NPM, DetectNPMArchive(mvnZip))
-	npmTarball := path.Join("../../tests/input", "code-frame-7.14.5.tgz")
+	npmTarball := path.Join(TEST_INPUT_PATH, "code-frame-7.14.5.tgz")
 	assert.Equal(t, TAR_FILE, DetectNPMArchive(npmTarball))
 }
 
 func TestExtractZipAll(t *testing.T) {
-	mvnZip := path.Join("../../tests/input", "commons-lang3.zip")
+	mvnZip := path.Join(TEST_INPUT_PATH, "commons-lang3.zip")
 	tempDir, _ := os.MkdirTemp("", "charon-test-*")
 	defer os.RemoveAll(tempDir)
 

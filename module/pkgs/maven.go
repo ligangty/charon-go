@@ -3,8 +3,10 @@ package pkgs
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -167,4 +169,88 @@ func versionCompare(ver1, ver2 string) int {
 	}
 
 	return 0
+}
+
+// Scan a file path and finds all pom files absolute paths
+func scanForPoms(fullPath string) []string {
+	allPomPaths := []string{}
+	filepath.WalkDir(fullPath, func(path string, d fs.DirEntry, err error) error {
+		if !d.IsDir() && strings.HasSuffix(path, ".pom") {
+			allPomPaths = append(allPomPaths, path)
+		}
+		return nil
+	})
+	return allPomPaths
+}
+
+// Parse maven groupId and artifactId from a standard path in a local maven repo.
+//
+// e.g: org/apache/maven/plugin/maven-plugin-plugin -> (org.apache.maven.plugin,
+// maven-plugin-plugin)
+//
+// root is like a prefix of the path which is not part of the maven GAV
+func parseGA(fullGAPath, root string) [2]string {
+	gaPath := trimRoot(fullGAPath, root)
+
+	items := strings.Split(gaPath, "/")
+	artifact := items[len(items)-1]
+	group := strings.Join(items[:len(items)-1], ".")
+
+	return [2]string{group, artifact}
+}
+
+// Parse maven groupId, artifactId and version from a standard path in a local maven repo.
+//
+// e.g: org/apache/maven/plugin/maven-plugin-plugin/1.0.0/maven-plugin-plugin-1.0.0.pom
+// -> (org.apache.maven.plugin, maven-plugin-plugin, 1.0.0)
+//
+// root is like a prefix of the path which is not part of the maven GAV
+func parseGAV(fullArtifactPath, root string) [3]string {
+	verPath := trimRoot(fullArtifactPath, root)
+
+	items := strings.Split(verPath, "/")
+	version := items[len(items)-2]
+	artifact := items[len(items)-3]
+	group := strings.Join(items[:len(items)-3], ".")
+
+	return [3]string{group, artifact, version}
+}
+
+// Give a list of paths with pom files and parse the maven groupId, artifactId and version
+// from them. The result will be a dict like {groupId: {artifactId: [versions list]}}.
+// Root is like a prefix of the path which is not part of the maven GAV
+func parseGAVs(pomPaths []string, root string) map[string]map[string][]string {
+	gavs := make(map[string]map[string][]string)
+	for _, pom := range pomPaths {
+		gav := parseGAV(pom, root)
+		g := gav[0]
+		a := gav[1]
+		v := gav[2]
+		avs := make(map[string][]string)
+		if item, ok := gavs[g]; ok {
+			avs = item
+		}
+		vers := []string{}
+		if item, ok := avs[a]; ok {
+			vers = item
+		}
+		vers = append(vers, v)
+		avs[a] = vers
+		gavs[g] = avs
+	}
+	return gavs
+}
+
+func trimRoot(fullPath, root string) string {
+	slashRoot := strings.TrimSpace(root)
+	if slashRoot == "" {
+		slashRoot = "/"
+	}
+	if !strings.HasSuffix(slashRoot, "/") {
+		slashRoot += "/"
+	}
+
+	verPath := strings.TrimPrefix(fullPath, slashRoot)
+	verPath = strings.TrimSuffix(verPath, "/")
+	return verPath
 }
