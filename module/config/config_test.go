@@ -1,18 +1,21 @@
 package config
 
 import (
+	"os"
 	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"org.commonjava/charon/module/util/files"
 	"org.commonjava/charon/module/util/test"
 )
 
+var bt *test.BaseTest = &test.BaseTest{}
+
 func TestConfig(t *testing.T) {
-	var bt *test.BaseTest = &test.BaseTest{}
 	bt.SetUp()
 	defer bt.TearDown()
-	conf, err := GetConfig()
+	conf, err := GetConfig("")
 	assert.Nil(t, err)
 	assert.Equal(t, "test", conf.AwsProfile)
 	assert.False(t, conf.AwsCFEnable)
@@ -36,12 +39,32 @@ func assertTarget(t *testing.T, expected, actual *Target) {
 }
 
 func TestNoConfig(t *testing.T) {
-	var bt *test.BaseTest = &test.BaseTest{}
 	bt.ChangeHome()
 	defer bt.TearDown()
-	_, err := GetConfig()
+	_, err := GetConfig("")
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "file not found")
+}
+
+func TestNonDefaultConfig(t *testing.T) {
+	configContent := `
+ignore_patterns:
+- ".*^(redhat).*"
+
+targets:
+  changed:
+  - bucket: changed-bucket
+    prefix: changed-prefix
+`
+	tmpConfigFile, _ := os.CreateTemp("", "charon-test-config-*.yaml")
+	files.StoreFile(tmpConfigFile.Name(), configContent, true)
+	conf, err := GetConfig(tmpConfigFile.Name())
+	assert.Nil(t, err)
+	assert.NotNil(t, conf)
+	assert.Equal(t, 1, len(conf.GetTarget("changed")))
+	assert.Equal(t, "changed-bucket", conf.GetTarget("changed")[0].Bucket)
+	assert.Equal(t, "changed-prefix", conf.GetTarget("changed")[0].Prefix)
+	os.Remove(tmpConfigFile.Name())
 }
 
 func TestConfigMissingTargets(t *testing.T) {
@@ -49,11 +72,10 @@ func TestConfigMissingTargets(t *testing.T) {
 - ".*^(redhat).*"
 - ".*snapshot.*"
 `
-	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	msg := "'targets' is a required property"
-	_, err := GetConfig()
+	_, err := GetConfig("")
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), msg)
 }
@@ -67,11 +89,10 @@ targets:
   ga:
   - prefix: ga
 `
-	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	msg := "'bucket' is a required property"
-	_, err := GetConfig()
+	_, err := GetConfig("")
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), msg)
 }
@@ -85,10 +106,9 @@ targets:
   ga:
   - bucket: charon-test
 `
-	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
-	conf, err := GetConfig()
+	conf, err := GetConfig("")
 	assert.Nil(t, err)
 	assert.NotNil(t, conf)
 	assert.Equal(t, "charon-test", conf.GetTarget("ga")[0].Bucket)
@@ -104,10 +124,9 @@ targets:
   npm:
   - bucket: charon-npm-test
 `
-	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
-	conf, err := GetConfig()
+	conf, err := GetConfig("")
 	assert.Nil(t, err)
 	assert.NotNil(t, conf)
 	assert.Equal(t, "charon-npm-test", conf.GetTarget("npm")[0].Bucket)
@@ -126,10 +145,9 @@ targets:
   ga:
   - bucket: charon-test
 `
-	var bt *test.BaseTest = &test.BaseTest{}
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
-	conf, err := GetConfig()
+	conf, err := GetConfig("")
 	assert.Nil(t, err)
 	assert.NotNil(t, conf)
 	assert.Equal(t, 5, len(conf.IgnorePatterns))

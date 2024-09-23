@@ -50,11 +50,14 @@ func (c *CharonConfig) GetIgnoreSignatureSuffix(pkgType string) []string {
 	return xartifactList
 }
 
-func GetConfig() (*CharonConfig, error) {
-	cfgFilePath := path.Join(os.Getenv("HOME"), ".charon", util.CONFIG_FILE)
-	yamlFile, err := files.ReadFile(cfgFilePath)
+func GetConfig(cfgFilePath string) (*CharonConfig, error) {
+	configFilePath := cfgFilePath
+	if strings.TrimSpace(configFilePath) == "" || !files.FileOrDirExists(configFilePath) {
+		configFilePath = path.Join(os.Getenv("HOME"), ".charon", util.CONFIG_FILE)
+	}
+	yamlFile, err := files.ReadFile(configFilePath)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Can not read yaml file %s, error:  #%v ", cfgFilePath, err))
+		logger.Error(fmt.Sprintf("Can not read yaml file %s, error:  #%v ", configFilePath, err))
 		return nil, err
 	}
 	var c CharonConfig
