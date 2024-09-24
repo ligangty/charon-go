@@ -16,49 +16,11 @@ import (
 	"text/template"
 
 	"org.commonjava/charon/module/config"
+	"org.commonjava/charon/module/storage"
 	"org.commonjava/charon/module/util/files"
 )
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-const MAVEN_METADATA_TEMPLATE = `<metadata>
-  {{if .GroupId -}}
-  <groupId>{{.GroupId}}</groupId>
-  {{- end}}
-  {{if .ArtifactId -}}
-  <artifactId>{{.ArtifactId}}</artifactId>
-  {{- end}}
-  {{if .Versions -}}
-  <versioning>
-    {{if .LatestVersion -}}
-    <latest>{{.LatestVersion}}</latest>
-    {{- end}}
-    {{if .ReleaseVersion -}}
-    <release>{{.ReleaseVersion}}</release>
-    {{- end}}
-    {{if .Versions -}}
-    <versions>
-      {{range $ver := .Versions -}}
-      <version>{{$ver}}</version>
-      {{end}}
-    </versions>
-    {{- end}}
-    {{if .LastUpdateTime -}}
-    <lastUpdated>{{.LastUpdateTime}}</lastUpdated>
-    {{- end}}
-  </versioning>
-  {{- end}}
-</metadata>
-`
-
-const (
-	MAVEN_METADATA_FILE = "maven-metadata.xml"
-	MAVEN_ARCH_FILE     = "archetype-catalog.xml"
-)
-
-var (
-	STANDARD_GENERATED_IGNORES = []string{MAVEN_METADATA_FILE, MAVEN_ARCH_FILE}
-)
 
 // This MavenMetadata will represent a maven-metadata.xml data content
 // which will be used in jinja2 or other places
@@ -259,7 +221,7 @@ func parseGAVs(pomPaths []string, root string) map[string]map[string][]string {
 }
 
 func genMetaFile(groupId, artifactId string,
-	versions []string, root string, digest bool) []string {
+	versions []string, root string, digest bool) ([]string, error) {
 	fixedRoot := fixRoot(root)
 	meta := &MavenMetadata{
 		GroupId:    groupId,
@@ -268,7 +230,7 @@ func genMetaFile(groupId, artifactId string,
 	}
 	content, err := meta.GenerateMetaFileContent()
 	if err != nil {
-		panic(err)
+		return []string{}, err
 	}
 
 	gPath := strings.Join(strings.Split(groupId, "."), "/")
@@ -279,7 +241,7 @@ func genMetaFile(groupId, artifactId string,
 	if digest {
 		metaFiles = append(metaFiles, genAllDigestFiles(finalMetaPath)...)
 	}
-	return metaFiles
+	return metaFiles, nil
 }
 
 func genAllDigestFiles(metaFilePath string) []string {
@@ -362,4 +324,110 @@ func isIgnored(fileName string, ignorePatterns []string) bool {
 		}
 	}
 	return false
+}
+
+func hashDecorateMetadata(fPath, metadata string) []string {
+	hashes := []string{}
+	for _, hash := range []string{".md5", ".sha1", ".sha256"} {
+		hashes = append(hashes, path.Join(fPath, metadata+hash))
+	}
+	return hashes
+}
+
+// Collect GAVs and generating maven-metadata.xml.
+//
+// As all valid poms has been stored in s3 bucket, what we should do here is:
+//   - Scan and get the GA for the poms
+//   - Search all poms in s3 based on the GA
+//   - Use searched poms to generate maven-metadata to refresh
+func generateMetadatas(s3 storage.S3Client, poms []string,
+	bucket, prefix, root string) map[string][]string {
+	gaMap := make(map[string]bool)
+	logger.Debug(fmt.Sprintf("Valid poms: %s", poms))
+	validGAVsMap := parseGAVs(poms, root)
+	for g, avs := range validGAVsMap {
+		for a := range avs {
+			logger.Debug(fmt.Sprintf("G: %s, A: %s", g, a))
+			gPath := strings.Join(strings.Split(g, "."), "/")
+			gaMap[path.Join(gPath, a)] = true
+		}
+	}
+	// Here we don't need to add original poms, because they
+	// have already been uploaded to s3 before calling this function
+	allPoms := []string{}
+	metaFiles := make(map[string][]string)
+	for p := range gaMap {
+		// avoid some wrong prefix, like searching org/apache
+		// but got org/apache-commons
+		gaPrefix := p
+		if strings.TrimSpace(prefix) != "" {
+			gaPrefix = path.Join(prefix, p)
+		}
+		if !strings.HasSuffix(p, "/") {
+			gaPrefix += "/"
+		}
+		existedPoms, success := s3.GetFiles(bucket, gaPrefix, ".pom")
+		if len(existedPoms) == 0 {
+			if success {
+				logger.Debug(
+					fmt.Sprintf("No poms found in s3 bucket %s for GA path %s",
+						bucket, p))
+				metaFilesDeletion, ok := metaFiles[META_FILE_DEL_KEY]
+				if !ok {
+					metaFilesDeletion = []string{}
+				}
+				metaFilesDeletion = append(metaFilesDeletion, path.Join(p, MAVEN_METADATA_FILE))
+				metaFilesDeletion = append(metaFilesDeletion, hashDecorateMetadata(p, MAVEN_METADATA_FILE)...)
+				metaFiles[META_FILE_DEL_KEY] = metaFilesDeletion
+			} else {
+				logger.Warn(
+					fmt.Sprintf(
+						"An error happened when scanning remote artifacts under GA path %s", p))
+				metaFailedPaths, ok := metaFiles[META_FILE_FAILED]
+				if !ok {
+					metaFailedPaths = []string{}
+				}
+				metaFailedPaths = append(metaFailedPaths, path.Join(p, MAVEN_METADATA_FILE))
+				metaFailedPaths = append(metaFailedPaths, hashDecorateMetadata(p, MAVEN_METADATA_FILE)...)
+				metaFiles[META_FILE_FAILED] = metaFailedPaths
+			}
+		} else {
+			logger.Debug(
+				fmt.Sprintf("Got poms in s3 bucket %s for GA path %s: %s", bucket, p, poms))
+			unPrefixedPoms := existedPoms
+			if strings.TrimSpace(prefix) != "" {
+				unPrefixedPoms = []string{}
+				if !strings.HasSuffix(prefix, "/") {
+					for _, pom := range existedPoms {
+						unPrefixedPoms = append(unPrefixedPoms, strings.TrimPrefix(pom, prefix))
+					}
+				} else {
+					for _, pom := range existedPoms {
+						unPrefixedPoms = append(unPrefixedPoms, strings.TrimPrefix(pom, prefix+"/"))
+					}
+				}
+			}
+			allPoms = append(allPoms, unPrefixedPoms...)
+		}
+	}
+	gavMap := parseGAVs(allPoms, "/")
+	if len(gavMap) > 0 {
+		metaFilesGen := []string{}
+		for g, avs := range gavMap {
+			for a, vers := range avs {
+				metas, err := genMetaFile(g, a, vers, root, true)
+				if err != nil {
+					logger.Warn(
+						fmt.Sprintf(
+							"Failed to create or update metadata file for GA %s:%s, please check if aligned Maven GA is correct in your tarball.",
+							g, a))
+				} else {
+					logger.Debug(fmt.Sprintf("Generated metadata file %s for %s:%s", metaFiles, g, a))
+					metaFilesGen = append(metaFilesGen, metas...)
+				}
+			}
+		}
+		metaFiles[META_FILE_GEN_KEY] = metaFilesGen
+	}
+	return metaFiles
 }

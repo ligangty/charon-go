@@ -1,12 +1,19 @@
 package pkgs
 
 import (
+	"context"
 	"os"
+	"path"
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
+	"org.commonjava/charon/module/storage"
 	"org.commonjava/charon/module/util/archive"
+	"org.commonjava/charon/module/util/files"
 )
 
 // func TestMavenMetadata(t *testing.T) {
@@ -100,4 +107,51 @@ func TestParseGAVs(t *testing.T) {
 	assert.Equal(t, 2, len(vers))
 	assert.Contains(t, vers, "1.0")
 	assert.Contains(t, vers, "1.1")
+}
+
+func TestGenerateMetadata(t *testing.T) {
+	existedPoms := []string{
+		"org/apache/maven/plugin/maven-plugin-plugin/1.0.0/maven-plugin-plugin-1.0.0.pom",
+		"org/apache/maven/plugin/maven-plugin-plugin/1.0.1/maven-plugin-plugin-1.0.1.pom",
+		"org/apache/maven/plugin/maven-plugin-plugin/1.0.2/maven-plugin-plugin-1.0.2.pom",
+		"io/quarkus/quarkus-core/2.0.0/quarkus-core-2.0.0.pom",
+		"io/quarkus/quarkus-core/2.0.1/quarkus-core-2.0.1.pom",
+	}
+	prefix := "maven-repository"
+	poms := []string{
+		"org/apache/maven/plugin/maven-plugin-plugin/1.0.0/maven-plugin-plugin-1.0.0.pom",
+		"io/quarkus/quarkus-core/2.0.0/quarkus-core-2.0.0.pom",
+	}
+	s3client, err := storage.S3ClientWithMock(storage.MockAWSS3Client{
+		LsObjV2: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+			contents := []types.Object{}
+			for _, pom := range existedPoms {
+				contents = append(contents, types.Object{Key: aws.String(pom)})
+			}
+			return &s3.ListObjectsV2Output{
+				Contents: contents,
+			}, nil
+		},
+	})
+	assert.Nil(t, err)
+	root, _ := os.MkdirTemp("", "charon-test-*")
+	result := generateMetadatas(*s3client, poms, storage.TEST_BUCKET, prefix, root)
+	assert.NotNil(t, result)
+	assert.Equal(t, 1, len(result))
+	assert.Equal(t, 8, len(result[META_FILE_GEN_KEY]))
+
+	metaFile := path.Join(root, "org/apache/maven/plugin/maven-plugin-plugin/maven-metadata.xml")
+	assert.True(t, files.FileOrDirExists(metaFile))
+	content, _ := files.ReadFile(metaFile)
+	assert.Contains(t, content, "<version>1.0.0</version>")
+	assert.Contains(t, content, "<version>1.0.1</version>")
+	assert.Contains(t, content, "<version>1.0.2</version>")
+
+	metaFile = path.Join(root, "io/quarkus/quarkus-core/maven-metadata.xml")
+	assert.True(t, files.FileOrDirExists(metaFile))
+	content, _ = files.ReadFile(metaFile)
+	assert.Contains(t, content, "<version>2.0.0</version>")
+	assert.Contains(t, content, "<version>2.0.1</version>")
+
+	os.RemoveAll(root)
 }

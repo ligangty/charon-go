@@ -17,43 +17,6 @@ import (
 	"org.commonjava/charon/module/util/files"
 )
 
-const TEST_BUCKET = "test_bucket"
-
-type MockAWSS3Client struct {
-	lsObjV2 func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
-	headObj func(context.Context, *s3.HeadObjectInput, ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
-	getObj  func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
-	putObj  func(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
-	delObj  func(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
-	cpObj   func(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
-}
-
-func (m MockAWSS3Client) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-	return m.lsObjV2(ctx, params, optFns...)
-}
-func (m MockAWSS3Client) HeadObject(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
-	return m.headObj(ctx, params, optFns...)
-}
-func (m MockAWSS3Client) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-	return m.getObj(ctx, params, optFns...)
-}
-func (m MockAWSS3Client) PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
-	return m.putObj(ctx, params, optFns...)
-}
-func (m MockAWSS3Client) DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
-	return m.delObj(ctx, params, optFns...)
-}
-func (m MockAWSS3Client) CopyObject(ctx context.Context, params *s3.CopyObjectInput, optFns ...func(*s3.Options)) (*s3.CopyObjectOutput, error) {
-	return m.cpObj(ctx, params, optFns...)
-}
-func S3ClientWithMock(mockAWSS3Client MockAWSS3Client) (*S3Client, error) {
-	s3client, err := NewS3Client("", 10, false)
-	if err != nil {
-		return nil, err
-	}
-	s3client.client = mockAWSS3Client
-	return s3client, nil
-}
 func TestGetFiles(t *testing.T) {
 	all_files := []string{
 		"io/quarkus/quakus-bom/quarkus.bom",
@@ -61,7 +24,7 @@ func TestGetFiles(t *testing.T) {
 		"org/apache/activemq/activemq.pom",
 	}
 	s3client, err := S3ClientWithMock(MockAWSS3Client{
-		lsObjV2: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+		LsObjV2: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
 				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
 			}
@@ -120,7 +83,7 @@ func TestReadFileContent(t *testing.T) {
 </metadata>
 	`
 	s3client, err := S3ClientWithMock(MockAWSS3Client{
-		getObj: func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+		GetObj: func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
 				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
 			}
@@ -149,7 +112,7 @@ func TestDownloadFile(t *testing.T) {
 	testKey := "foo/bar/foo-bar.txt"
 	testContet := "just test"
 	s3client, err := S3ClientWithMock(MockAWSS3Client{
-		getObj: func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+		GetObj: func(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
 				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
 			}
@@ -186,7 +149,7 @@ func TestListFolderContent(t *testing.T) {
 		"org/apache/lucene/index.html",
 	}
 	s3client, err := S3ClientWithMock(MockAWSS3Client{
-		lsObjV2: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+		LsObjV2: func(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
 			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
 				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
 			}
@@ -237,7 +200,7 @@ func TestListFolderContent(t *testing.T) {
 
 func TestFileExistsInBucket(t *testing.T) {
 	s3client, err := S3ClientWithMock(MockAWSS3Client{
-		headObj: func(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+		HeadObj: func(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
 			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
 				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
 			}
