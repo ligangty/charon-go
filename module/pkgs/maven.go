@@ -90,54 +90,31 @@ type MavenArchetypeCatalog struct {
 	Archetypes []ArchetypeRef
 }
 
+func NewMavenArchetypeCatalog(archetypes []ArchetypeRef) MavenArchetypeCatalog {
+	archs := make([]ArchetypeRef, len(archetypes))
+	copy(archs, archetypes)
+	slices.SortFunc(archs, archetypeRefCompare)
+	return MavenArchetypeCatalog{Archetypes: archs}
+}
+
+func (m *MavenArchetypeCatalog) GenerateMetaFileContent() (string, error) {
+	t := template.Must(template.New("archetype").Parse(ARCHETYPE_CATALOG_TEMPLATE))
+	var buf bytes.Buffer
+	err := t.Execute(&buf, m)
+	if err != nil {
+		logger.Error(fmt.Sprintf("executing template: %s", err))
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func (m *MavenArchetypeCatalog) String() string {
+	return fmt.Sprintf("(Archetype Catalog with %v entries).\n\n", len(m.Archetypes))
+}
+
 func isInt(s string) bool {
 	_, err := strconv.Atoi(s)
 	return err == nil
-}
-
-func versionCompare(ver1, ver2 string) int {
-	xitems := strings.Split(ver1, ".")
-	if strings.Contains(xitems[len(xitems)-1], "-") {
-		xitems = append(xitems[0:len(xitems)-1], strings.Split(xitems[len(xitems)-1], "-")...)
-	}
-	yitems := strings.Split(ver2, ".")
-	if strings.Contains(yitems[len(yitems)-1], "-") {
-		yitems = append(yitems[0:len(yitems)-1], strings.Split(yitems[len(yitems)-1], "-")...)
-	}
-	big := max(len(xitems), len(yitems))
-	for i := 0; i < big; i++ {
-		if i >= len(xitems) {
-			return -1
-		}
-		if i >= len(yitems) {
-			return 1
-		}
-		xitem := xitems[i]
-		yitem := yitems[i]
-		if isInt(xitem) && !isInt(yitem) {
-			return 1
-		} else if !isInt(xitem) && isInt(yitem) {
-			return -1
-		} else if isInt(xitem) && isInt(yitem) {
-			xitemInt, _ := strconv.Atoi(xitem)
-			yitemInt, _ := strconv.Atoi(yitem)
-			if xitemInt > yitemInt {
-				return 1
-			} else if xitemInt < yitemInt {
-				return -1
-			}
-		} else {
-			if xitem > yitem {
-				return 1
-			} else if xitem < yitem {
-				return -1
-			} else {
-				continue
-			}
-		}
-	}
-
-	return 0
 }
 
 // Scan a file path and finds all pom files absolute paths
@@ -559,4 +536,62 @@ func generateMetadatas(s3 storage.S3Client, poms []string,
 		metaFiles[META_FILE_GEN_KEY] = metaFilesGen
 	}
 	return metaFiles
+}
+
+func versionCompare(ver1, ver2 string) int {
+	xitems := strings.Split(ver1, ".")
+	if strings.Contains(xitems[len(xitems)-1], "-") {
+		xitems = append(xitems[0:len(xitems)-1], strings.Split(xitems[len(xitems)-1], "-")...)
+	}
+	yitems := strings.Split(ver2, ".")
+	if strings.Contains(yitems[len(yitems)-1], "-") {
+		yitems = append(yitems[0:len(yitems)-1], strings.Split(yitems[len(yitems)-1], "-")...)
+	}
+	big := max(len(xitems), len(yitems))
+	for i := 0; i < big; i++ {
+		if i >= len(xitems) {
+			return -1
+		}
+		if i >= len(yitems) {
+			return 1
+		}
+		xitem := xitems[i]
+		yitem := yitems[i]
+		if isInt(xitem) && !isInt(yitem) {
+			return 1
+		} else if !isInt(xitem) && isInt(yitem) {
+			return -1
+		} else if isInt(xitem) && isInt(yitem) {
+			xitemInt, _ := strconv.Atoi(xitem)
+			yitemInt, _ := strconv.Atoi(yitem)
+			if xitemInt > yitemInt {
+				return 1
+			} else if xitemInt < yitemInt {
+				return -1
+			}
+		} else {
+			if xitem > yitem {
+				return 1
+			} else if xitem < yitem {
+				return -1
+			} else {
+				continue
+			}
+		}
+	}
+
+	return 0
+}
+
+func archetypeRefCompare(arch1, arch2 ArchetypeRef) int {
+	x := arch1.GroupId + ":" + arch1.ArtifactId
+	y := arch2.GroupId + ":" + arch2.ArtifactId
+
+	if x == y {
+		return versionCompare(arch1.Version, arch2.Version)
+	} else if x < y {
+		return -1
+	}
+	return 1
+
 }

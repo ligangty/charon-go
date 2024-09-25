@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -17,17 +18,44 @@ import (
 	"org.commonjava/charon/module/util/files"
 )
 
-// func TestMavenMetadata(t *testing.T) {
-// 	meta := MavenMetadata{
-// 		GroupId:        "foo.bar",
-// 		ArtifactId:     "foobar",
-// 		versions:       []string{"1.0", "4.0-beta", "2.0", "3.0", "5.0", "4.0", "4.0-alpha"},
-// 		LastUpdateTime: time.Now().Format("2006-01-02 15:04:01"),
-// 	}
-// 	content, err := meta.GenerateMetaFileContent()
-// 	assert.Nil(t, err)
-// 	fmt.Println(content)
-// }
+func TestMavenMetadata(t *testing.T) {
+	meta := MavenMetadata{
+		GroupId:        "foo.bar",
+		ArtifactId:     "foobar",
+		versions:       []string{"1.0", "4.0-beta", "2.0", "3.0", "5.0", "4.0", "4.0-alpha"},
+		LastUpdateTime: time.Now().Format("2006-01-02 15:04:01"),
+	}
+	content, err := meta.GenerateMetaFileContent()
+	assert.Nil(t, err)
+	assert.Contains(t, content, "<groupId>foo.bar</groupId")
+	assert.Contains(t, content, "<artifactId>foobar</artifactId")
+	assert.Contains(t, content, "<versions>")
+	assert.Contains(t, content, "<versioning>")
+	assert.Contains(t, content, "<latest>5.0</latest>")
+	assert.Contains(t, content, "<release>5.0</release>")
+	for _, v := range meta.Versions() {
+		assert.Contains(t, content, "<version>"+v+"</version>")
+	}
+	assert.Contains(t, content, "<lastUpdated>"+meta.LastUpdateTime+"</lastUpdated>")
+}
+
+func TestMavenArchetypeCatalog(t *testing.T) {
+	archs := []ArchetypeRef{
+		{GroupId: "io.quarkus", ArtifactId: "quarkus-core", Version: "1.0", Description: "quarkus-core 1.0"},
+		{GroupId: "foo.bar", ArtifactId: "foobar", Version: "2.0", Description: "foobar 2.0"},
+		{GroupId: "foo.bar", ArtifactId: "foobar", Version: "1.0", Description: "foobar 1.0"},
+	}
+	arch := NewMavenArchetypeCatalog(archs)
+	content, err := arch.GenerateMetaFileContent()
+	assert.Nil(t, err)
+	for _, a := range archs {
+		assert.Contains(t, content, "<groupId>"+a.GroupId+"</groupId>")
+		assert.Contains(t, content, "<artifactId>"+a.ArtifactId+"</artifactId>")
+		assert.Contains(t, content, "<version>"+a.Version+"</version>")
+		assert.Contains(t, content, "<description>"+a.Description+"</description>")
+	}
+	fmt.Println(content)
+}
 
 func TestVersionsCompare(t *testing.T) {
 	// Normal versions comparasion

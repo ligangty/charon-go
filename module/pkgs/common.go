@@ -31,16 +31,16 @@ const (
 </metadata>
 `
 
-	// TODO: need to change to use golang html template
 	ARCHETYPE_CATALOG_TEMPLATE = `<archetype-catalog>
   <archetypes>
-  {% for arch in archetypes %}
+  {{range $arch := .Archetypes}}
     <archetype>
-      <groupId>{{ arch.group_id }}</groupId>
-      <artifactId>{{ arch.artifact_id }}</artifactId>
-      <version>{{ arch.version }}</version>
-      <description>{{ arch.description }}</description>
-    </archetype>{% endfor %}
+      <groupId>{{ $arch.GroupId }}</groupId>
+      <artifactId>{{ $arch.ArtifactId }}</artifactId>
+      <version>{{ $arch.Version }}</version>
+      <description>{{ $arch.Description }}</description>
+    </archetype>
+  {{end}}
   </archetypes>
 </archetype-catalog>
 `
