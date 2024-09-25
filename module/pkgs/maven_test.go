@@ -2,9 +2,10 @@ package pkgs
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
-	"strings"
+	"path/filepath"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -50,7 +51,7 @@ func TestScanForPoms(t *testing.T) {
 	allPoms := scanForPoms(dir)
 	assert.True(t, len(allPoms) > 0)
 	for _, pom := range allPoms {
-		if !strings.HasSuffix(pom, ".pom") {
+		if filepath.Ext(pom) != ".pom" {
 			assert.Fail(t, "%s is not a pom", pom)
 		}
 	}
@@ -110,6 +111,8 @@ func TestParseGAVs(t *testing.T) {
 }
 
 func TestGenerateMetadata(t *testing.T) {
+	root, _ := os.MkdirTemp("", "charon-test-*")
+	defer os.RemoveAll(root)
 	existedPoms := []string{
 		"org/apache/maven/plugin/maven-plugin-plugin/1.0.0/maven-plugin-plugin-1.0.0.pom",
 		"org/apache/maven/plugin/maven-plugin-plugin/1.0.1/maven-plugin-plugin-1.0.1.pom",
@@ -134,7 +137,7 @@ func TestGenerateMetadata(t *testing.T) {
 		},
 	})
 	assert.Nil(t, err)
-	root, _ := os.MkdirTemp("", "charon-test-*")
+
 	result := generateMetadatas(*s3client, poms, storage.TEST_BUCKET, prefix, root)
 	assert.NotNil(t, result)
 	assert.Equal(t, 1, len(result))
@@ -152,6 +155,31 @@ func TestGenerateMetadata(t *testing.T) {
 	content, _ = files.ReadFile(metaFile)
 	assert.Contains(t, content, "<version>2.0.0</version>")
 	assert.Contains(t, content, "<version>2.0.1</version>")
+}
 
-	os.RemoveAll(root)
+func TestScanPaths(t *testing.T) {
+	repo := "../../tests/input/commons-lang3.zip"
+	fRoot := extractTarball(repo, "test", "")
+	defer os.RemoveAll(fRoot)
+	assertPom := func(poms []string) {
+		for _, p := range poms {
+			if filepath.Ext(p) != ".pom" {
+				assert.Fail(t, fmt.Sprintf("%s is not a pom file", p))
+			}
+		}
+	}
+	scannedPaths := scanPaths([]string{}, fRoot, "maven-repository")
+	assert.Equal(t, "maven-repository", path.Base(scannedPaths.topLevel))
+	assert.Equal(t, 30, len(scannedPaths.mvnPaths))
+	assert.Equal(t, 13, len(scannedPaths.poms))
+	assertPom(scannedPaths.poms)
+	assert.Equal(t, 18, len(scannedPaths.dirs))
+
+	scannedPaths = scanPaths([]string{"license.*", "README.*", ".*settings.xml.*"}, fRoot, "maven-repository")
+	assert.Equal(t, "maven-repository", path.Base(scannedPaths.topLevel))
+	assert.Equal(t, 27, len(scannedPaths.mvnPaths))
+	assert.Equal(t, 13, len(scannedPaths.poms))
+	assertPom(scannedPaths.poms)
+	assert.Equal(t, 18, len(scannedPaths.dirs))
+	fmt.Println(scannedPaths)
 }

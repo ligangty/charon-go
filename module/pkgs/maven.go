@@ -17,6 +17,7 @@ import (
 
 	"org.commonjava/charon/module/config"
 	"org.commonjava/charon/module/storage"
+	"org.commonjava/charon/module/util/archive"
 	"org.commonjava/charon/module/util/files"
 )
 
@@ -143,7 +144,7 @@ func versionCompare(ver1, ver2 string) int {
 func scanForPoms(fullPath string) []string {
 	allPomPaths := []string{}
 	filepath.WalkDir(fullPath, func(path string, d fs.DirEntry, err error) error {
-		if !d.IsDir() && strings.HasSuffix(path, ".pom") {
+		if !d.IsDir() && filepath.Ext(path) == ".pom" {
 			allPomPaths = append(allPomPaths, path)
 		}
 		return nil
@@ -288,10 +289,10 @@ func wildcardMetadataPaths(paths []string) []string {
 		if strings.HasSuffix(p, MAVEN_METADATA_FILE) ||
 			strings.HasSuffix(p, MAVEN_ARCH_FILE) {
 			newPaths = append(newPaths, p[:len(p)-len(".xml")]+".*")
-		} else if strings.HasSuffix(p, ".md5") ||
-			strings.HasSuffix(p, ".sha1") ||
-			strings.HasSuffix(p, ".sha128") ||
-			strings.HasSuffix(p, ".sha256") {
+		} else if filepath.Ext(p) == ".md5" ||
+			filepath.Ext(p) == ".sha1" ||
+			filepath.Ext(p) == ".sha128" ||
+			filepath.Ext(p) == ".sha256" {
 			continue
 		} else {
 			newPaths = append(newPaths, p)
@@ -332,6 +333,134 @@ func hashDecorateMetadata(fPath, metadata string) []string {
 		hashes = append(hashes, path.Join(fPath, metadata+hash))
 	}
 	return hashes
+}
+
+func extractTarball(repo, prefix, dir_ string) string {
+	if files.FileOrDirExists(repo) {
+		logger.Info(fmt.Sprintf("Extracting tarball: %s", repo))
+		tmpRoot, err := os.MkdirTemp(dir_, fmt.Sprintf("charon-%s-*", prefix))
+		if err != nil {
+			panic(err)
+		}
+		err = archive.ExtractZipAll(repo, tmpRoot)
+		if err != nil {
+			panic(err)
+		}
+		return tmpRoot
+	}
+	panic(fmt.Errorf("error: archive %s does not exist", repo))
+}
+
+type scannedPaths struct {
+	topLevel string
+	mvnPaths []string
+	poms     []string
+	dirs     []string
+}
+
+func (s scannedPaths) String() string {
+	var sb strings.Builder
+	sb.WriteString("Scanned paths: \n")
+	sb.WriteString(fmt.Sprintf("Top level:%s\n", s.topLevel))
+
+	appendLines := func(lines []string) {
+		for _, l := range lines {
+			sb.WriteString(l + "\n")
+		}
+	}
+	sb.WriteString("Maven paths:\n")
+	appendLines(s.mvnPaths)
+	sb.WriteString("Pom paths:\n")
+	appendLines(s.poms)
+	sb.WriteString("Dirs:\n")
+	appendLines(s.dirs)
+
+	return sb.String()
+}
+
+// scan for paths and filter out the ignored paths,
+// and also collect poms for later metadata generation
+func scanPaths(ignorePatterns []string, filesRoot, root string) scannedPaths {
+	logger.Info(fmt.Sprintf("Scan %s to collect files", filesRoot))
+	topLevel := root
+	validMvnPaths := []string{}
+	nonMvnPaths := []string{}
+	ignoredPaths := []string{}
+	validPoms := []string{}
+	validDirs := []string{}
+	changedDirs := make(map[string]bool)
+	topFound := false
+	filepath.WalkDir(filesRoot, func(p string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			changedDirs[p] = true
+			if !topFound {
+				curDir := path.Base(p)
+				if curDir == topLevel {
+					topLevel = p
+					topFound = true
+				}
+				tempRoot := path.Join(filesRoot, topLevel)
+				if strings.TrimSuffix(p, "/") == strings.TrimSuffix(tempRoot, "/") {
+					topLevel = tempRoot
+					topFound = true
+				}
+			}
+		} else {
+			fName := path.Base(p)
+			if strings.Contains(p, topLevel) {
+				// Let's wait to do the regex / pom examination until we
+				// know we're inside a valid root directory.
+				if isIgnored(fName, ignorePatterns) {
+					ignoredPaths = append(ignoredPaths, p)
+				} else {
+					validMvnPaths = append(validMvnPaths, p)
+					if filepath.Ext(fName) == ".pom" {
+						validPoms = append(validPoms, p)
+					}
+				}
+			} else {
+				nonMvnPaths = append(nonMvnPaths, p)
+			}
+		}
+		return nil
+	})
+	if len(nonMvnPaths) > 0 {
+		tmpNonMvnPaths := []string{}
+		for _, n := range nonMvnPaths {
+			tmpNonMvnPaths = append(tmpNonMvnPaths, strings.ReplaceAll(n, filesRoot, ""))
+		}
+		nonMvnPaths = tmpNonMvnPaths
+		logger.Info(
+			fmt.Sprintf("These files are not in the specified root dir %s, so will be ignored: \n%s",
+				root, nonMvnPaths))
+	}
+	trimmedTop := strings.TrimSpace(topLevel)
+	if !topFound || trimmedTop == "" || trimmedTop == "/" {
+		logger.Warn(
+			fmt.Sprintf(
+				"Warning: the root path %s does not exist in tarball, will use empty trailing prefix for the uploading",
+				topLevel))
+		topLevel = filesRoot
+	} else {
+		for c := range changedDirs {
+			if strings.HasPrefix(c, topLevel) {
+				validDirs = append(validDirs, c)
+			}
+		}
+	}
+	logger.Info("Files scanning done.\n")
+	if len(ignorePatterns) > 0 {
+		logger.Info(
+			fmt.Sprintf("Ignored paths with ignore_patterns %s as below:\n%s\n",
+				ignorePatterns, strings.Join(ignorePatterns, "\n")))
+	}
+
+	return scannedPaths{
+		topLevel: topLevel,
+		mvnPaths: validMvnPaths,
+		poms:     validPoms,
+		dirs:     validDirs,
+	}
 }
 
 // Collect GAVs and generating maven-metadata.xml.

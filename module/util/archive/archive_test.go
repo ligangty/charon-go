@@ -5,7 +5,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,10 +32,10 @@ func TestExtractZipAll(t *testing.T) {
 	filepath.WalkDir(tempDir, func(path string, d fs.DirEntry, err error) error {
 		if d.Type().IsRegular() {
 			count++
-			if strings.HasSuffix(d.Name(), ".jar") {
+			if filepath.Ext(d.Name()) == ".jar" {
 				containsJar = true
 			}
-			if strings.HasSuffix(d.Name(), ".pom") {
+			if filepath.Ext(d.Name()) == ".pom" {
 				containsPom = true
 			}
 		}
