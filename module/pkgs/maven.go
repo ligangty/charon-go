@@ -112,6 +112,46 @@ func (m *MavenArchetypeCatalog) String() string {
 	return fmt.Sprintf("(Archetype Catalog with %v entries).\n\n", len(m.Archetypes))
 }
 
+// Handle the maven product release tarball uploading process.
+//   - repo is the location of the tarball in filesystem
+//   - prod_key is used to identify which product this repo
+//     tar belongs to
+//   - ignore_patterns is used to filter out paths which don't
+//     need to upload in the tarball
+//   - root is a prefix in the tarball to identify which path is
+//     the beginning of the maven GAV path
+//   - targets contains the target name with its bucket name and prefix
+//     for the bucket, which will be used to store artifacts with the
+//     prefix. See target definition in Charon configuration for details
+//   - dir_ is base dir for extracting the tarball, will use system
+//     tmp dir if None.
+//
+// Returns the directory used for archive processing and if the uploading is successful
+func HandleMavenUploading(
+	repo,
+	prodKey string,
+	ignorePatterns []string,
+	root string,
+	buckets []config.Target,
+	awsProfile,
+	dir_ string,
+	doIndex,
+	genSign bool,
+	cfEnable bool,
+	key string,
+	dryRun bool,
+	manifestBucketName,
+	configFilePath string,
+) (string, bool) {
+	realRoot := root
+	if strings.TrimSpace(realRoot) == "" {
+		realRoot = "maven-repository"
+	}
+
+	//TODO: wait for implementation
+	return "", true
+}
+
 func isInt(s string) bool {
 	_, err := strconv.Atoi(s)
 	return err == nil

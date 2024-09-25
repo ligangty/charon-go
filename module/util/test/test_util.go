@@ -69,6 +69,7 @@ targets:
   npm:
   - bucket: "charon-test-npm"
     registry: "npm1.registry.redhat.com"
+    domain: "npm.registry.redhat.com"
 
 manifest_bucket: "manifest"
 `

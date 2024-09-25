@@ -29,9 +29,11 @@ type CharonConfig struct {
 }
 
 type Target struct {
+	Name     string
 	Bucket   string `yaml:"bucket"`
 	Prefix   string `yaml:"prefix"`
 	Registry string `yaml:"registry"`
+	Domain   string `yaml:"domain"`
 }
 
 func (c *CharonConfig) GetTarget(t string) []*Target {

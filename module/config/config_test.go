@@ -25,7 +25,7 @@ func TestConfig(t *testing.T) {
 	assert.Equal(t, 1, len(conf.GetTarget("npm")))
 	assertTarget(t, &Target{Bucket: "charon-test", Prefix: "ga", Registry: "localhost"}, conf.GetTarget("ga")[0])
 	assertTarget(t, &Target{Bucket: "charon-test-ea", Prefix: "earlyaccess/all", Registry: "localhost"}, conf.GetTarget("ea")[0])
-	assertTarget(t, &Target{Bucket: "charon-test-npm", Prefix: "", Registry: "npm1.registry.redhat.com"}, conf.GetTarget("npm")[0])
+	assertTarget(t, &Target{Bucket: "charon-test-npm", Prefix: "", Registry: "npm1.registry.redhat.com", Domain: "npm.registry.redhat.com"}, conf.GetTarget("npm")[0])
 	assert.Equal(t, "touch {{ file }}.asc", conf.SignatureCommand)
 	assert.Equal(t, []string{".sha1", ".sha256", ".md5", "maven-metadata.xml", "archtype-catalog.xml"}, conf.GetIgnoreSignatureSuffix("maven"))
 	assert.Equal(t, []string{"package.json"}, conf.GetIgnoreSignatureSuffix("npm"))
@@ -36,6 +36,7 @@ func assertTarget(t *testing.T, expected, actual *Target) {
 	assert.Equal(t, expected.Bucket, actual.Bucket)
 	assert.Equal(t, expected.Prefix, actual.Prefix)
 	assert.Equal(t, expected.Registry, actual.Registry)
+	assert.Equal(t, expected.Domain, actual.Domain)
 }
 
 func TestNoConfig(t *testing.T) {
