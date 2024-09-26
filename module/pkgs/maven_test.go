@@ -6,6 +6,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +19,8 @@ import (
 	"org.commonjava/charon/module/util/archive"
 	"org.commonjava/charon/module/util/files"
 )
+
+const TEST_REPO = "../../tests/input/commons-lang3.zip"
 
 func TestMavenMetadata(t *testing.T) {
 	meta := MavenMetadata{
@@ -126,7 +130,7 @@ func TestVersionsCompare(t *testing.T) {
 
 func TestScanForPoms(t *testing.T) {
 	dir, _ := os.MkdirTemp("", "charon-test-*")
-	archive.ExtractZipAll("../../tests/input/commons-lang3.zip", dir)
+	archive.ExtractZipAll(TEST_REPO, dir)
 	allPoms := scanForPoms(dir)
 	assert.True(t, len(allPoms) > 0)
 	for _, pom := range allPoms {
@@ -189,6 +193,25 @@ func TestParseGAVs(t *testing.T) {
 	assert.Contains(t, vers, "1.1")
 }
 
+func TestParseGAVsWithRoot(t *testing.T) {
+	poms := []string{
+		"/tmp/maven-repository/org/apache/maven/plugins/maven-plugin-plugin/1.0.0/maven-plugin-plugin-1.0.0.pom",
+		"/tmp/maven-repository/org/apache/maven/plugins/maven-plugin-plugin/1.0.1/maven-plugin-plugin-1.0.1.pom",
+		"/tmp/maven-repository/org/apache/maven/plugins/maven-plugin-plugin/1.2.0/maven-plugin-plugin-1.2.0.pom",
+	}
+	gavs := parseGAVs(poms, "/tmp/maven-repository")
+	assert.Equal(t, 1, len(gavs))
+	artifacts, ok := gavs["org.apache.maven.plugins"]
+	assert.True(t, ok)
+	assert.Equal(t, 1, len(artifacts))
+	vers, ok := artifacts["maven-plugin-plugin"]
+	assert.True(t, ok)
+	assert.Equal(t, 3, len(vers))
+	assert.Contains(t, vers, "1.0.0")
+	assert.Contains(t, vers, "1.0.1")
+	assert.Contains(t, vers, "1.2.0")
+}
+
 func TestGenerateMetadata(t *testing.T) {
 	root, _ := os.MkdirTemp("", "charon-test-*")
 	defer os.RemoveAll(root)
@@ -236,9 +259,38 @@ func TestGenerateMetadata(t *testing.T) {
 	assert.Contains(t, content, "<version>2.0.1</version>")
 }
 
+func TestGenMetaFile(t *testing.T) {
+	tmpRoot := extractTarball(TEST_REPO, "test", "")
+	defer os.RemoveAll(tmpRoot)
+	root := path.Join(tmpRoot, "apache-commons-maven-repository/maven-repository")
+	poms := scanForPoms(root)
+	gavMap := parseGAVs(poms, root)
+	for g, avs := range gavMap {
+		for a, vers := range avs {
+			genMetaFile(g, a, vers, root, true)
+		}
+	}
+	mavenMetaFile := path.Join(
+		root, "org/apache/commons/commons-lang3/maven-metadata.xml")
+	if !files.FileOrDirExists(mavenMetaFile) {
+		assert.Fail(t, "maven-metadata is not generated correctly!")
+	}
+	metaContent, _ := files.ReadFile(mavenMetaFile)
+	assert.Contains(t, metaContent, "<groupId>org.apache.commons</groupId>")
+	assert.Contains(t, metaContent, "<artifactId>commons-lang3</artifactId>")
+	lines := strings.Split(metaContent, "\n")
+	count := 0
+	pattern := regexp.MustCompile(".*<version>.*</version>.*")
+	for _, l := range lines {
+		if ok := pattern.MatchString(l); ok {
+			count++
+		}
+	}
+	assert.Equal(t, 13, count)
+}
+
 func TestScanPaths(t *testing.T) {
-	repo := "../../tests/input/commons-lang3.zip"
-	fRoot := extractTarball(repo, "test", "")
+	fRoot := extractTarball(TEST_REPO, "test", "")
 	defer os.RemoveAll(fRoot)
 	assertPom := func(poms []string) {
 		for _, p := range poms {

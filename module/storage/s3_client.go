@@ -220,9 +220,9 @@ func (c *S3Client) SimpleDeleteFile(filePath string, target cfg.Target) bool {
 // careful to use. If you want to upload product artifact files,
 // please use upload_files()
 func (c *S3Client) SimpleUploadFile(filePath, fileContent string,
-	target [2]string, mimeType string, checksumSHA1 string, force bool) error {
-	bucket := target[0]
-	prefix := target[1]
+	target cfg.Target, mimeType string, checksumSHA1 string, force bool) error {
+	bucket := target.Bucket
+	prefix := target.Prefix
 	pathKey := path.Join(prefix, filePath)
 	logger.Debug(fmt.Sprintf("Uploading %s to bucket %s", pathKey, bucket))
 	existed, err := c.FileExistsInBucket(bucket, pathKey)
