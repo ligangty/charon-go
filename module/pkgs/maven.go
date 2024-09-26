@@ -36,7 +36,7 @@ type MavenMetadata struct {
 }
 
 func (m *MavenMetadata) LatestVersion() string {
-	if strings.TrimSpace(m.latestVersion) != "" {
+	if !util.IsBlankString(m.latestVersion) {
 		return m.latestVersion
 	}
 	versions := m.Versions()
@@ -44,7 +44,7 @@ func (m *MavenMetadata) LatestVersion() string {
 	return m.latestVersion
 }
 func (m *MavenMetadata) ReleaseVersion() string {
-	if strings.TrimSpace(m.releaseVersion) != "" {
+	if !util.IsBlankString(m.releaseVersion) {
 		return m.releaseVersion
 	}
 	versions := m.Versions()
@@ -145,7 +145,7 @@ func HandleMavenUploading(
 	configFilePath string,
 ) (string, bool) {
 	realRoot := root
-	if strings.TrimSpace(realRoot) == "" {
+	if util.IsBlankString(realRoot) {
 		realRoot = "maven-repository"
 	}
 	// step 1. extract tarball
@@ -198,7 +198,7 @@ func HandleMavenUploading(
 		// prepare cf invalidate files
 		cfInvalidatePaths := []string{}
 		// step 5. Do manifest uploading
-		if strings.TrimSpace(manifestBucketName) == "" {
+		if util.IsBlankString(manifestBucketName) {
 			logger.Warn("Warning: No manifest bucket is provided, will ignore the process of manifest uploading\n")
 		} else {
 			logger.Info("Start uploading manifest to s3 bucket " + manifestBucketName)
@@ -493,7 +493,7 @@ func wildcardMetadataPaths(paths []string) []string {
 }
 
 func getSuffix(pkgType string, conf config.CharonConfig) []string {
-	if strings.TrimSpace(pkgType) != "" {
+	if !util.IsBlankString(pkgType) {
 		return conf.GetIgnoreSignatureSuffix(pkgType)
 	}
 	return []string{}
@@ -501,7 +501,7 @@ func getSuffix(pkgType string, conf config.CharonConfig) []string {
 
 func isIgnored(fileName string, ignorePatterns []string) bool {
 	for _, ignoreName := range STANDARD_GENERATED_IGNORES {
-		if strings.TrimSpace(fileName) != "" &&
+		if !util.IsBlankString(fileName) &&
 			strings.HasPrefix(fileName, strings.TrimSpace(ignoreName)) {
 			logger.Info(
 				fmt.Sprintf("Ignoring standard generated Maven path: %s", fileName))
@@ -680,7 +680,7 @@ func generateMetadatas(s3 storage.S3Client, poms []string,
 		// avoid some wrong prefix, like searching org/apache
 		// but got org/apache-commons
 		gaPrefix := p
-		if strings.TrimSpace(prefix) != "" {
+		if !util.IsBlankString(prefix) {
 			gaPrefix = path.Join(prefix, p)
 		}
 		if !strings.HasSuffix(p, "/") {
@@ -715,7 +715,7 @@ func generateMetadatas(s3 storage.S3Client, poms []string,
 			logger.Debug(
 				fmt.Sprintf("Got poms in s3 bucket %s for GA path %s: %s", bucket, p, poms))
 			unPrefixedPoms := existedPoms
-			if strings.TrimSpace(prefix) != "" {
+			if !util.IsBlankString(prefix) {
 				unPrefixedPoms = []string{}
 				if !strings.HasSuffix(prefix, "/") {
 					for _, pom := range existedPoms {
@@ -760,6 +760,9 @@ func generateMetadatas(s3 storage.S3Client, poms []string,
 // return a boolean indicating whether the local file should be uploaded.
 func generateUploadArchetypeCatalog(s3 *storage.S3Client,
 	bucket, root, prefix string) bool {
+	if util.IsBlankString(prefix) {
+
+	}
 	// TODO: will implement later
 	return false
 }

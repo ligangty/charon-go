@@ -12,6 +12,7 @@ import (
 	"path"
 	"strings"
 
+	"org.commonjava/charon/module/util"
 	"org.commonjava/charon/module/util/files"
 	"org.commonjava/charon/module/util/httpc"
 )
@@ -87,7 +88,7 @@ func DetectNPMArchive(repo string) NpmArchiveType {
 func DownloadArchive(url, baseDir string) string {
 	dir := baseDir
 	var err error
-	if strings.TrimSpace(dir) == "" || !files.FileOrDirExists(dir) || files.IsFile(dir) {
+	if util.IsBlankString(dir) || !files.FileOrDirExists(dir) || files.IsFile(dir) {
 		dir, err = os.MkdirTemp("", "charon-*")
 		if err != nil {
 			logger.Error(fmt.Sprintf(
@@ -117,11 +118,11 @@ func DownloadArchive(url, baseDir string) string {
 // Result returns the version meta file path and is for following package meta generating.
 // func ExtractNPMTarball(repo, targetDir, packageRoot, registry string, isForUpload bool) {
 // 	pkgRoot := packageRoot
-// 	if strings.TrimSpace(pkgRoot) == "" {
+// 	if util.IsBlankString(pkgRoot) {
 // 		pkgRoot = "package"
 // 	}
 // 	reg := registry
-// 	if strings.TrimSpace(reg) == "" {
+// 	if util.IsBlankString(reg) {
 // 		reg = DEFAULT_REGISTRY
 // 	}
 

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path"
-	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -62,7 +61,7 @@ func GetConfig(cfgFilePath string) (*CharonConfig, error) {
 	lock.Lock()
 	defer lock.Unlock()
 	configFilePath := cfgFilePath
-	if strings.TrimSpace(configFilePath) == "" || !files.FileOrDirExists(configFilePath) {
+	if util.IsBlankString(configFilePath) || !files.FileOrDirExists(configFilePath) {
 		configFilePath = path.Join(os.Getenv("HOME"), ".charon", util.CONFIG_FILE)
 	}
 	yamlFile, err := files.ReadFile(configFilePath)
@@ -80,7 +79,7 @@ func GetConfig(cfgFilePath string) (*CharonConfig, error) {
 	// Set default registries for missing
 	for _, v := range c.Targets {
 		for _, t := range v {
-			if strings.TrimSpace(t.Registry) == "" {
+			if util.IsBlankString(t.Registry) {
 				t.Registry = util.DEFAULT_REGISTRY
 			}
 		}
@@ -111,7 +110,7 @@ func validateConfig(conf *CharonConfig) error {
 	}
 	for _, v := range targets {
 		for _, t := range v {
-			if strings.TrimSpace(t.Bucket) == "" {
+			if util.IsBlankString(t.Bucket) {
 				return fmt.Errorf(MISSING_FIELD, "bucket")
 			}
 		}

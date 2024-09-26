@@ -26,6 +26,7 @@ import (
 	"path"
 	"strings"
 
+	"org.commonjava/charon/module/util"
 	"org.commonjava/charon/module/util/files"
 )
 
@@ -152,10 +153,10 @@ func DownloadFile(url, filename string, auth Authenticate) (string, error) {
 	logger.Debug("The api is trying to download a file")
 	conDispo := resp.Header.Get("Content-Disposition")
 	filePath := ""
-	if strings.TrimSpace(filename) != "" {
+	if !util.IsBlankString(filename) {
 		filePath = strings.TrimSpace(filename)
 	} else {
-		if strings.TrimSpace(conDispo) != "" {
+		if !util.IsBlankString(conDispo) {
 			start := strings.Index(conDispo, "filename")
 			filePath = conDispo[start:]
 			splitted := strings.Split(filePath, "=")

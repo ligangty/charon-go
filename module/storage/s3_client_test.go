@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
+	"org.commonjava/charon/module/util"
 	"org.commonjava/charon/module/util/files"
 )
 
@@ -204,7 +205,7 @@ func TestFileExistsInBucket(t *testing.T) {
 			if params.Bucket == nil || strings.TrimSpace(*params.Bucket) != TEST_BUCKET {
 				return nil, fmt.Errorf("expect bucket to not be %s", TEST_BUCKET)
 			}
-			if params.Key != nil && strings.TrimSpace(*params.Key) != "" {
+			if params.Key != nil && !util.IsBlankString(*params.Key) {
 				if *params.Key == "org/apache/index.html" {
 					return &s3.HeadObjectOutput{}, nil
 				} else {

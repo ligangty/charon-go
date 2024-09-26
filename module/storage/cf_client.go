@@ -2,11 +2,11 @@ package storage
 
 import (
 	"context"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"org.commonjava/charon/module/util"
 )
 
 var DEFAULT_BUCKET_TO_DOMAIN = map[string]string{
@@ -45,7 +45,7 @@ func NewCFClient(awsProfile string) (*CFCLient, error) {
 
 	var cfg aws.Config
 	var err error
-	if strings.TrimSpace(cfClient.awsProfile) != "" {
+	if !util.IsBlankString(cfClient.awsProfile) {
 		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithSharedConfigProfile(awsProfile))
 	} else {
 		cfg, err = config.LoadDefaultConfig(context.TODO())

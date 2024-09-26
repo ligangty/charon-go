@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"strings"
 	"sync"
 	"time"
 
+	"org.commonjava/charon/module/util"
 	"org.commonjava/charon/module/util/files"
 )
 
@@ -29,10 +29,10 @@ func (b *BaseTest) SetUp() {
 }
 
 func (b *BaseTest) TearDown() {
-	if strings.TrimSpace(b.oldHome) != "" && os.Getenv("HOME") != b.oldHome {
+	if !util.IsBlankString(b.oldHome) && os.Getenv("HOME") != b.oldHome {
 		os.Setenv("HOME", b.oldHome)
 	}
-	if strings.TrimSpace(b.tmpDir) != "" && files.FileOrDirExists(b.tmpDir) {
+	if !util.IsBlankString(b.tmpDir) && files.FileOrDirExists(b.tmpDir) {
 		os.RemoveAll(b.tmpDir)
 	}
 }

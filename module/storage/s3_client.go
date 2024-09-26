@@ -54,7 +54,7 @@ func NewS3Client(awsProfile string, conLimit int, dryRun bool) (*S3Client, error
 
 	var cfg aws.Config
 	var err error
-	if strings.TrimSpace(s3Client.awsProfile) != "" {
+	if !util.IsBlankString(s3Client.awsProfile) {
 		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithSharedConfigProfile(awsProfile))
 	} else {
 		cfg, err = config.LoadDefaultConfig(context.TODO())
@@ -75,7 +75,7 @@ func (c *S3Client) GetFiles(bucket string, prefix string, suffix string) ([]stri
 	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(bucket),
 	}
-	if strings.TrimSpace(prefix) != "" {
+	if !util.IsBlankString(prefix) {
 		input.Prefix = aws.String(prefix)
 	}
 	result, err := c.client.ListObjectsV2(context.TODO(), input)
@@ -89,7 +89,7 @@ func (c *S3Client) GetFiles(bucket string, prefix string, suffix string) ([]stri
 	}
 	var files []string
 
-	if strings.TrimSpace(suffix) != "" {
+	if !util.IsBlankString(suffix) {
 		for _, v := range contents {
 			fileName := *v.Key
 			if strings.HasSuffix(fileName, suffix) {
@@ -233,12 +233,12 @@ func (c *S3Client) SimpleUploadFile(filePath, fileContent string,
 	}
 
 	contentType := mimeType
-	if strings.TrimSpace(contentType) == "" {
+	if util.IsBlankString(contentType) {
 		contentType = DEFAULT_MIME_TYPE
 	}
 	if !existed || force {
 		fMeta := map[string]string{}
-		if strings.TrimSpace(checksumSHA1) != "" {
+		if !util.IsBlankString(checksumSHA1) {
 			fMeta[CHECKSUM_META_KEY] = checksumSHA1
 		}
 		if !c.dryRun {
@@ -287,7 +287,7 @@ func (c *S3Client) SimpleUploadFile(filePath, fileContent string,
 func (c *S3Client) UploadFiles(filePaths []string, targets []cfg.Target,
 	product string, root string) []string {
 	realRoot := root
-	if strings.TrimSpace(realRoot) == "" {
+	if util.IsBlankString(realRoot) {
 		realRoot = "/"
 	}
 
@@ -316,7 +316,7 @@ func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePat
 	logger.Debug(fmt.Sprintf("[S3] (%d/%d) Uploading %s to bucket %s",
 		index, total, fullFilePath, mainBucket))
 	mainPathKey := fPath
-	if strings.TrimSpace(keyPrefix) != "" {
+	if !util.IsBlankString(keyPrefix) {
 		mainPathKey = path.Join(keyPrefix, fPath)
 	}
 	existed, err := c.FileExistsInBucket(mainBucket, mainPathKey)
@@ -357,7 +357,7 @@ func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePat
 					mainBucket, err))
 				return false
 			}
-			if strings.TrimSpace(product) != "" {
+			if !util.IsBlankString(product) {
 				c.updateProductInfo(mainPathKey, mainBucket, []string{product})
 			}
 		}
@@ -370,7 +370,7 @@ func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePat
 		extraBucket := target.Bucket
 		extraPrefix := target.Prefix
 		extraPathKey := fPath
-		if strings.TrimSpace(extraPrefix) != "" {
+		if !util.IsBlankString(extraPrefix) {
 			extraPathKey = path.Join(extraPrefix, fPath)
 		}
 		logger.Debug(fmt.Sprintf("Copyinging %s from bucket %s to bucket %s",
@@ -384,7 +384,7 @@ func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePat
 						fullFilePath, extraBucket, err))
 					return false
 				}
-				if strings.TrimSpace(product) != "" {
+				if !util.IsBlankString(product) {
 					c.updateProductInfo(extraPathKey, extraBucket, []string{product})
 				}
 			}
@@ -434,7 +434,7 @@ func (c *S3Client) pathDeleteHandler(product, mainBucket, keyPrefix, fullFilePat
 	total int, extraPrefixedBuckets []cfg.Target) bool {
 	logger.Debug(fmt.Sprintf("(%d/%d) Deleting %s from bucket %s", index, total, fPath, mainBucket))
 	pathKey := fPath
-	if strings.TrimSpace(keyPrefix) != "" {
+	if !util.IsBlankString(keyPrefix) {
 		pathKey = path.Join(keyPrefix, fPath)
 	}
 	existed, err := c.FileExistsInBucket(mainBucket, pathKey)
@@ -449,7 +449,7 @@ func (c *S3Client) pathDeleteHandler(product, mainBucket, keyPrefix, fullFilePat
 		// empty, and we will just delete the file, below. Otherwise,
 		// the product reference counts will be used (from object metadata).
 		prods := []string{}
-		if strings.TrimSpace(product) != "" {
+		if !util.IsBlankString(product) {
 			prds, ok := c.getProductInfo(pathKey, mainBucket)
 			if !ok {
 				return false
@@ -588,7 +588,7 @@ func doPathCutAnd(product, mainBucket, keyPrefix string,
 	pathHandler func(a, b, c, d, e string, f, g int, h []cfg.Target) bool,
 	root string) []string {
 	slashRoot := root
-	if strings.TrimSpace(root) == "" {
+	if util.IsBlankString(root) {
 		slashRoot = "/"
 	}
 	if !strings.HasSuffix(root, "/") {
