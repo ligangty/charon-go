@@ -41,6 +41,7 @@ func assertTarget(t *testing.T, expected, actual *Target) {
 
 func TestNoConfig(t *testing.T) {
 	bt.ChangeHome()
+	resetGlobal()
 	defer bt.TearDown()
 	_, err := GetConfig("")
 	assert.NotNil(t, err)
@@ -73,6 +74,7 @@ func TestConfigMissingTargets(t *testing.T) {
 - ".*^(redhat).*"
 - ".*snapshot.*"
 `
+	resetGlobal()
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	msg := "'targets' is a required property"
@@ -90,6 +92,7 @@ targets:
   ga:
   - prefix: ga
 `
+	resetGlobal()
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	msg := "'bucket' is a required property"
@@ -107,6 +110,7 @@ targets:
   ga:
   - bucket: charon-test
 `
+	resetGlobal()
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	conf, err := GetConfig("")
@@ -125,6 +129,7 @@ targets:
   npm:
   - bucket: charon-npm-test
 `
+	resetGlobal()
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	conf, err := GetConfig("")
@@ -146,6 +151,7 @@ targets:
   ga:
   - bucket: charon-test
 `
+	resetGlobal()
 	defer bt.TearDown()
 	bt.ChangeConfigContent(contentMissingTargets)
 	conf, err := GetConfig("")

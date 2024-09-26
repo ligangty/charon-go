@@ -33,10 +33,18 @@ func TestStoreFile(t *testing.T) {
 
 func TestIsFile(t *testing.T) {
 	StoreFile("/tmp/testDir/testFile", "test content", false)
+	defer os.RemoveAll("/tmp/testDir")
 	assert.True(t, IsFile("/tmp/testDir/testFile"))
 	assert.False(t, IsFile("/tmp/testDir/notExist"))
 	assert.False(t, IsFile("/tmp/testDir"))
-	os.RemoveAll("/tmp/testDir")
+}
+
+func TestIsDir(t *testing.T) {
+	StoreFile("/tmp/testDir/testFile", "test content", false)
+	defer os.RemoveAll("/tmp/testDir")
+	assert.False(t, IsDir("/tmp/testDir/testFile"))
+	assert.False(t, IsDir("/tmp/testDir/notExist"))
+	assert.True(t, IsDir("/tmp/testDir"))
 }
 
 func TestGuessMimetype(t *testing.T) {

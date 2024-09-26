@@ -17,6 +17,7 @@ import (
 
 	"org.commonjava/charon/module/config"
 	"org.commonjava/charon/module/storage"
+	"org.commonjava/charon/module/util"
 	"org.commonjava/charon/module/util/archive"
 	"org.commonjava/charon/module/util/files"
 )
@@ -132,7 +133,7 @@ func HandleMavenUploading(
 	prodKey string,
 	ignorePatterns []string,
 	root string,
-	buckets []config.Target,
+	targets []config.Target,
 	awsProfile,
 	dir_ string,
 	doIndex,
@@ -147,9 +148,182 @@ func HandleMavenUploading(
 	if strings.TrimSpace(realRoot) == "" {
 		realRoot = "maven-repository"
 	}
+	// step 1. extract tarball
+	tmpRoot := extractTarball(repo, prodKey, dir_)
 
-	//TODO: wait for implementation
-	return "", true
+	// step 2. scan for paths and filter out the ignored paths,
+	// and also collect poms for later metadata generation
+	scannedPaths := scanPaths(ignorePatterns, tmpRoot, root)
+	validMvnPaths, topLevel := scannedPaths.mvnPaths, scannedPaths.topLevel
+
+	// This prefix is a subdir under top-level directory in tarball
+	// or root before real GAV dir structure
+	if !files.IsDir(topLevel) {
+		panic(fmt.Errorf("error: the extracted top-level path %s does not exist",
+			topLevel))
+	}
+
+	// step 3. do validation for the files, like product version checking
+	logger.Info("Validating paths with rules.")
+	errMsgs, passed := validateMaven(validMvnPaths)
+	if !passed {
+		handleError(errMsgs)
+		//Question: should we exit here?
+	}
+
+	// step 4. Do uploading
+	s3Client, err := storage.NewS3Client(
+		awsProfile, storage.DEFAULT_CONCURRENT_LIMIT, dryRun)
+	if err != nil {
+		panic(err)
+	}
+	fixedTargets := make([]config.Target, len(targets))
+	buckets := make([]string, len(targets))
+	for i, t := range targets {
+		fixedTargets[i] = config.Target{
+			Bucket:   t.Bucket,
+			Prefix:   strings.TrimPrefix(t.Prefix, "/"),
+			Registry: t.Registry,
+			Domain:   t.Domain,
+		}
+		buckets[i] = t.Bucket
+	}
+	logger.Info(fmt.Sprintf("Start uploading files to s3 buckets: %s", buckets))
+	failedFiles := s3Client.UploadFiles(
+		validMvnPaths, fixedTargets, prodKey, topLevel)
+	logger.Info("Files uploading done\n")
+	succeeded := true
+	generatedSigns := []string{}
+	for _, t := range fixedTargets {
+		// prepare cf invalidate files
+		cfInvalidatePaths := []string{}
+		// step 5. Do manifest uploading
+		if strings.TrimSpace(manifestBucketName) == "" {
+			logger.Warn("Warning: No manifest bucket is provided, will ignore the process of manifest uploading\n")
+		} else {
+			logger.Info("Start uploading manifest to s3 bucket " + manifestBucketName)
+			manifestFolder := t.Bucket
+			manifestName, manifestFullPath := files.WriteManifest(validMvnPaths, topLevel, prodKey)
+			s3Client.UploadManifest(manifestName, manifestFullPath, manifestFolder, manifestBucketName)
+			logger.Info("Manifest uploading is done\n")
+		}
+
+		// step 6. Use uploaded poms to scan s3 for metadata refreshment
+		bucketName := t.Bucket
+		prefix := t.Prefix
+		validPoms := scannedPaths.poms
+		logger.Info("Start generating maven-metadata.xml files for bucket " + bucketName)
+		metaFiles := generateMetadatas(*s3Client, validPoms, bucketName, prefix, root)
+		logger.Info("maven-metadata.xml files generation done\n")
+		failedMetas := metaFiles[META_FILE_FAILED]
+
+		// step 7. Upload all maven-metadata.xml
+		if v, ok := metaFiles[META_FILE_GEN_KEY]; ok {
+			logger.Info("Start updating maven-metadata.xml to s3 bucket " + bucketName)
+			_failedMetas := s3Client.UploadMetadatas(v, t, "", topLevel)
+			failedMetas = append(failedMetas, _failedMetas...)
+			logger.Info(
+				fmt.Sprintf("maven-metadata.xml updating done in bucket %s\n", bucketName))
+			// Add maven-metadata.xml to CF invalidate paths
+			if cfEnable {
+				cfInvalidatePaths = append(cfInvalidatePaths, metaFiles[META_FILE_GEN_KEY]...)
+			}
+		}
+
+		// step 8. Determine refreshment of archetype-catalog.xml
+		if files.FileOrDirExists(path.Join(topLevel, MAVEN_ARCH_FILE)) {
+			logger.Info("Start generating archetype-catalog.xml for bucket " + bucketName)
+			uploadArchetypeFile := generateUploadArchetypeCatalog(s3Client, bucketName, topLevel, prefix)
+			logger.Info(
+				fmt.Sprintf("archetype-catalog.xml files generation done in bucket %s\n", bucketName))
+			if uploadArchetypeFile {
+				archetypeFiles := []string{path.Join(topLevel, MAVEN_ARCH_FILE)}
+				archetypeFiles = append(archetypeFiles, hashDecorateMetadata(topLevel, MAVEN_ARCH_FILE)...)
+				logger.Info("Start updating archetype-catalog.xml to s3 bucket %s" + bucketName)
+				_failedMetas := s3Client.UploadMetadatas(archetypeFiles, t, "", topLevel)
+				failedMetas = append(failedMetas, _failedMetas...)
+				logger.Info(fmt.Sprintf("archetype-catalog.xml updating done in bucket %s\n", bucketName))
+				// Add archtype-catalog to invalidate paths
+				if cfEnable {
+					cfInvalidatePaths = append(cfInvalidatePaths, archetypeFiles...)
+				}
+			}
+		}
+
+		// step 10. Generate signature file if contain_signature is set to True
+		if genSign {
+			conf, err := config.GetConfig(configFilePath)
+			if err != nil {
+				panic(err)
+			}
+			suffixList := getSuffix(PACKAGE_TYPE_MAVEN, *conf)
+			command := conf.SignatureCommand
+			artifacts := []string{}
+			for _, p := range validMvnPaths {
+				suffixed := false
+				for _, s := range suffixList {
+					if strings.HasSuffix(p, s) {
+						suffixed = true
+						break
+					}
+				}
+				if !suffixed {
+					artifacts = append(artifacts, p)
+				}
+			}
+			logger.Info(
+				fmt.Sprintf("Start generating signature for s3 bucket %s\n", bucketName))
+			_failedMetas, _generatedSigns := generateSign(
+				*s3Client, artifacts, util.PACKAGE_TYPE_MAVEN,
+				topLevel, prefix, bucketName, key, command)
+			failedMetas = append(failedMetas, _failedMetas...)
+			generatedSigns = append(generatedSigns, _generatedSigns...)
+			logger.Info("Singature generation done.\n")
+			logger.Info(
+				fmt.Sprintf("Start upload singature files to s3 bucket %s\n", bucketName))
+			_failedMetas = s3Client.UploadSignatures(
+				generatedSigns, t, "", topLevel)
+			failedMetas = append(failedMetas, _failedMetas...)
+			logger.Info("Signature uploading done.\n")
+		}
+
+		//  this step generates index.html for each dir and add them to file list
+		//  index is similar to metadata, it will be overwritten everytime
+		validDirs := scannedPaths.dirs
+		if doIndex {
+			logger.Info("Start generating index files to s3 bucket " + bucketName)
+			createdIndex := generateIndexes(*s3Client, validDirs,
+				PACKAGE_TYPE_MAVEN, topLevel, bucketName, prefix)
+			logger.Info("Index files generation done.\n")
+			logger.Info("Start updating index files to s3 bucket " + bucketName)
+			_failed_metas := s3Client.UploadMetadatas(createdIndex, t, prodKey, topLevel)
+			failedMetas = append(failedMetas, _failed_metas...)
+			logger.Info("Index files updating done\n")
+			// We will not invalidate the index files per cost consideration
+			// if cfEnable {
+			// 	cfInvalidatePaths = append(cfInvalidatePaths, createdIndex...)
+			// }
+		} else {
+			logger.Info("Bypass indexing")
+		}
+
+		// step 11. Finally do the CF invalidating for metadata files
+		if cfEnable && len(cfInvalidatePaths) > 0 {
+			cfClient, err := storage.NewCFClient(awsProfile)
+			if err != nil {
+				logger.Error(
+					fmt.Sprintf("Cannot do Cloudfront cache invalidating due to error: %s", err))
+			} else {
+				cfInvalidatePaths = wildcardMetadataPaths(cfInvalidatePaths)
+				invalidateCFPaths(cfClient, t, cfInvalidatePaths, root, storage.INVALIDATION_BATCH_DEFAULT)
+			}
+		}
+
+		uploadPostProcess(failedFiles, failedMetas, prodKey, bucketName)
+		succeeded = succeeded && len(failedFiles) <= 0 && len(failedMetas) <= 0
+	}
+
+	return tmpRoot, succeeded
 }
 
 func isInt(s string) bool {
@@ -576,6 +750,28 @@ func generateMetadatas(s3 storage.S3Client, poms []string,
 		metaFiles[META_FILE_GEN_KEY] = metaFilesGen
 	}
 	return metaFiles
+}
+
+// Determine whether the local archive contains /archetype-catalog.xml
+// in the repo contents.
+//
+// If so, determine whether the archetype-catalog.xml is already
+// available in the bucket. Merge (or unmerge) these catalogs and
+// return a boolean indicating whether the local file should be uploaded.
+func generateUploadArchetypeCatalog(s3 *storage.S3Client,
+	bucket, root, prefix string) bool {
+	// TODO: will implement later
+	return false
+}
+
+func validateMaven(paths []string) ([]string, bool) {
+	// Reminder: need to implement later
+	logger.Debug(fmt.Sprintf("Need to validate mvn paths: %s", paths))
+	return []string{}, true
+}
+
+func handleError(errMsgs []string) {
+	// Reminder: will implement later
 }
 
 func versionCompare(ver1, ver2 string) int {

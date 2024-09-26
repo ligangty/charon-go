@@ -3,6 +3,9 @@ package pkgs
 import (
 	"fmt"
 	"strings"
+
+	"org.commonjava/charon/module/config"
+	"org.commonjava/charon/module/storage"
 )
 
 func IsMetadata(file string) bool {
@@ -50,6 +53,12 @@ func postProcess(failedFiles, failedMetas []string, productKey, operation, bucke
 			logger.Error(fmt.Sprintf("Failed metadata files: \n%s\n", failedMetas))
 		}
 	}
+}
+
+func invalidateCFPaths(cfClient *storage.CFCLient,
+	target config.Target, invalidatePaths []string,
+	root string, batchSize int) {
+
 }
 
 // def invalidate_cf_paths(

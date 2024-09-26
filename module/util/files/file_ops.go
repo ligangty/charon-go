@@ -26,6 +26,9 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
+
+	"org.commonjava/charon/module/util"
 )
 
 const (
@@ -88,6 +91,15 @@ func IsFile(name string) bool {
 		return true
 	}
 	return false
+}
+
+func IsDir(path string) bool {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+
+	return fileInfo.IsDir()
 }
 
 func GuessMimetype(name string) string {
@@ -157,4 +169,17 @@ func DigestContent(content string, hash crypto.Hash) string {
 	h := hash.New()
 	io.WriteString(h, content)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func WriteManifest(paths []string, root, productKey string) (string, string) {
+	manifestName := productKey + util.MANIFEST_SUFFIX
+	manifestPath := path.Join(root, manifestName)
+	artifacts := []string{}
+	for _, p := range paths {
+		p = strings.TrimPrefix(p, root)
+		p = strings.TrimPrefix(p, "/")
+		artifacts = append(artifacts, p)
+	}
+	StoreFile(manifestPath, strings.Join(artifacts, "\n"), true)
+	return manifestName, manifestPath
 }

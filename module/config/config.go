@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 	"org.commonjava/charon/module/util"
@@ -13,6 +14,9 @@ import (
 )
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+var globalConfig *CharonConfig
+var lock = &sync.Mutex{}
 
 // CharonConfig is used to store all configurations for charon
 // tools.
@@ -29,7 +33,6 @@ type CharonConfig struct {
 }
 
 type Target struct {
-	Name     string
 	Bucket   string `yaml:"bucket"`
 	Prefix   string `yaml:"prefix"`
 	Registry string `yaml:"registry"`
@@ -53,6 +56,11 @@ func (c *CharonConfig) GetIgnoreSignatureSuffix(pkgType string) []string {
 }
 
 func GetConfig(cfgFilePath string) (*CharonConfig, error) {
+	if globalConfig != nil {
+		return globalConfig, nil
+	}
+	lock.Lock()
+	defer lock.Unlock()
 	configFilePath := cfgFilePath
 	if strings.TrimSpace(configFilePath) == "" || !files.FileOrDirExists(configFilePath) {
 		configFilePath = path.Join(os.Getenv("HOME"), ".charon", util.CONFIG_FILE)
@@ -82,7 +90,17 @@ func GetConfig(cfgFilePath string) (*CharonConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &c, nil
+
+	// Store a singleton to reuse
+	globalConfig = &c
+
+	return globalConfig, nil
+}
+
+func resetGlobal() {
+	lock.Lock()
+	defer lock.Unlock()
+	globalConfig = nil
 }
 
 func validateConfig(conf *CharonConfig) error {

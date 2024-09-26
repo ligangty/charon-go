@@ -18,16 +18,14 @@ limitations under the License.
 const (
 	// Logging format used
 	CHARON_LOGGING_FMT = "%(asctime)s - %(levelname)s - %(message)s"
-
-	DESCRIPTION = `charon is a tool to synchronize several types of artifacts 
+	DESCRIPTION        = `charon is a tool to synchronize several types of artifacts 
 	repository data to RedHat Ronda service (maven.repository.redhat.com).`
-	PROG = "charon"
-
+	PROG               = "charon"
 	PROD_INFO_SUFFIX   = ".prodinfo"
 	MANIFEST_SUFFIX    = ".txt"
 	DEFAULT_ERRORS_LOG = "errors.log"
-
-	DEFAULT_REGISTRY = "localhost"
-
-	CONFIG_FILE = "charon.yaml"
+	DEFAULT_REGISTRY   = "localhost"
+	CONFIG_FILE        = "charon.yaml"
+	PACKAGE_TYPE_MAVEN = "maven"
+	PACKAGE_TYPE_NPM   = "npm"
 )

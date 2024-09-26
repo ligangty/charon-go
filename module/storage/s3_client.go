@@ -23,8 +23,11 @@ import (
 
 var logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-const DEFAULT_MIME_TYPE = "application/octet-stream"
-const CHECKSUM_META_KEY = "checksum"
+const (
+	DEFAULT_MIME_TYPE        = "application/octet-stream"
+	CHECKSUM_META_KEY        = "checksum"
+	DEFAULT_CONCURRENT_LIMIT = 10
+)
 
 type s3ClientIface interface {
 	s3.ListObjectsV2APIClient
@@ -390,6 +393,22 @@ func (c *S3Client) pathUploadHandler(product, mainBucket, keyPrefix, fullFilePat
 		}
 	}
 	return true
+}
+
+func (c *S3Client) UploadManifest(manifestName, manifestFullPath, target, manifestBucketName string) {
+	// TODO: not implemented yet!
+}
+
+func (c *S3Client) UploadMetadatas(metaFilePaths []string, target cfg.Target,
+	product string, root string) []string {
+	// TODO: not implemented yet!
+	return []string{}
+}
+
+func (c *S3Client) UploadSignatures(metaFilePaths []string, target cfg.Target,
+	product, root string) []string {
+	// TODO: not implemented yet!
+	return []string{}
 }
 
 // Deletes a list of files to s3 bucket.
