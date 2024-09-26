@@ -3,6 +3,7 @@ package pkgs
 import (
 	"bytes"
 	"crypto"
+	"encoding/xml"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -74,10 +75,11 @@ func (m *MavenMetadata) GenerateMetaFileContent() (string, error) {
 // This ArchetypeRef will represent an entry in archetype-catalog.xml content
 // which will be used in jinja2 or other places
 type ArchetypeRef struct {
-	GroupId     string
-	ArtifactId  string
-	Version     string
-	Description string
+	GroupId     string `xml:"groupId"`
+	ArtifactId  string `xml:"artifactId"`
+	Version     string `xml:"version"`
+	Repository  string `xml:"repository"`
+	Description string `xml:"description"`
 }
 
 func (m ArchetypeRef) String() string {
@@ -88,7 +90,7 @@ func (m ArchetypeRef) String() string {
 // This MavenArchetypeCatalog represents an archetype-catalog.xml which will be
 // used in jinja2 to regenerate the file with merged contents
 type MavenArchetypeCatalog struct {
-	Archetypes []ArchetypeRef
+	Archetypes []ArchetypeRef `xml:"archetypes>archetype"`
 }
 
 func NewMavenArchetypeCatalog(archetypes []ArchetypeRef) MavenArchetypeCatalog {
@@ -99,14 +101,20 @@ func NewMavenArchetypeCatalog(archetypes []ArchetypeRef) MavenArchetypeCatalog {
 }
 
 func (m *MavenArchetypeCatalog) GenerateMetaFileContent() (string, error) {
-	t := template.Must(template.New("archetype").Parse(ARCHETYPE_CATALOG_TEMPLATE))
-	var buf bytes.Buffer
-	err := t.Execute(&buf, m)
+	bytes, err := xml.MarshalIndent(m, "", "  ")
 	if err != nil {
 		logger.Error(fmt.Sprintf("executing template: %s", err))
 		return "", err
 	}
-	return buf.String(), nil
+	return string(bytes), nil
+	// t := template.Must(template.New("archetype").Parse(ARCHETYPE_CATALOG_TEMPLATE))
+	// var buf bytes.Buffer
+	// err := t.Execute(&buf, m)
+	// if err != nil {
+	// 	logger.Error(fmt.Sprintf("executing template: %s", err))
+	// 	return "", err
+	// }
+	// return buf.String(), nil
 }
 
 func (m *MavenArchetypeCatalog) String() string {
@@ -760,11 +768,122 @@ func generateMetadatas(s3 storage.S3Client, poms []string,
 // return a boolean indicating whether the local file should be uploaded.
 func generateUploadArchetypeCatalog(s3 *storage.S3Client,
 	bucket, root, prefix string) bool {
-	if util.IsBlankString(prefix) {
-
+	remote := MAVEN_ARCH_FILE
+	if !util.IsBlankString(prefix) {
+		remote = path.Join(prefix, MAVEN_ARCH_FILE)
 	}
-	// TODO: will implement later
+	local := path.Join(root, MAVEN_ARCH_FILE)
+	//  As the local archetype will be overwrittern later, we must keep
+	//  a cache of the original local for multi-targets support
+	localBak := path.Join(root, MAVEN_ARCH_FILE+".charon.bak")
+	if files.FileOrDirExists(local) && !files.FileOrDirExists(localBak) {
+		content, err := files.ReadFile(local)
+		if err != nil {
+			logger.Warn("Can not open file: " + local)
+		} else {
+			files.StoreFile(localBak, content, true)
+		}
+	}
+
+	// If there is no local catalog, this is a NO-OP
+	if files.FileOrDirExists(localBak) {
+		existed, err := s3.FileExistsInBucket(bucket, remote)
+		if err != nil {
+			logger.Error(
+				"Error: Can not generate archtype-catalog.xml due to: " + err.Error())
+			return false
+		}
+		if !existed {
+			genAllDigestFiles(local)
+			// If there is no catalog in the bucket, just upload what we have locally
+			return true
+		} else {
+			content, err := files.ReadFile(local)
+			if err != nil {
+				logger.Warn(
+					fmt.Sprintf("Failed to parse archetype-catalog.xml from local archive with root: %s "+
+						"becuase of error: %s. SKIPPING invalid archetype processing.", root, err))
+				return false
+			}
+			localArchetypes, err := parseArchetypes(content)
+			if err != nil {
+				logger.Warn(
+					fmt.Sprintf("Failed to parse archetype-catalog.xml from local archive with root: %s. "+
+						"SKIPPING invalid archetype processing.", root))
+				return false
+			}
+			if len(localArchetypes) < 1 {
+				logger.Warn("No archetypes found in local archetype-catalog.xml, " +
+					"even though the file exists! Skipping.")
+			} else {
+				// Read the archetypes from the bucket so we can do a merge / un-merge
+				remoteXml, err := s3.ReadFileContent(bucket, remote)
+				if err != nil {
+					logger.Warn(fmt.Sprintf("Failed to get archetype-catalog.xml from bucket: %s. "+
+						"OVERWRITING bucket archetype-catalog.xml with the valid, local copy.", bucket))
+					return true
+				}
+				remoteArchetypes, err := parseArchetypes(remoteXml)
+				if err != nil {
+					logger.Warn(fmt.Sprintf("Failed to get archetype-catalog.xml from bucket: %s. "+
+						"OVERWRITING bucket archetype-catalog.xml with the valid, local copy.", bucket))
+					return true
+				}
+				if len(remoteArchetypes) == 0 {
+					genAllDigestFiles(local)
+					// Nothing in the bucket. Just push what we have locally.
+					return true
+				} else {
+					originalRemoteSize := len(remoteArchetypes)
+					for _, la := range localArchetypes {
+						// The cautious approach in this operation contradicts
+						// assumptions we make for the rollback case.
+						// That's because we should NEVER encounter a collision
+						// on archetype GAV...they should belong with specific
+						// product releases.
+						// Still, we will WARN, not ERROR if we encounter this.
+						if !slices.Contains(localArchetypes, la) {
+							remoteArchetypes = append(remoteArchetypes, la)
+						} else {
+							logger.Warn(fmt.Sprintf("\n\n\nDUPLICATE ARCHETYPE: %s. "+
+								"This makes rollback of the current release UNSAFE!\n\n\n", la))
+						}
+					}
+					if len(remoteArchetypes) != originalRemoteSize {
+						// If the number of archetypes in the version of
+						// the file from the bucket has changed, we need
+						// to regenerate the file and re-upload it.
+						//
+						// Re-render the result of our archetype merge /
+						// un-merge to the local file, in preparation for
+						// upload.
+						arch := NewMavenArchetypeCatalog(remoteArchetypes)
+						content, err = arch.GenerateMetaFileContent()
+						if err != nil {
+							logger.Error(fmt.Sprintf(
+								"Error: Can not create file %s because of some missing folders", local))
+							return false
+						}
+						files.StoreFile(local, content, true)
+						genAllDigestFiles(local)
+						return true
+					}
+				}
+			}
+		}
+	}
+
 	return false
+}
+
+func parseArchetypes(archXmlContent string) ([]ArchetypeRef, error) {
+	archCatalog := MavenArchetypeCatalog{}
+	err := xml.Unmarshal([]byte(archXmlContent), &archCatalog)
+	if err != nil {
+		logger.Error("Can not parse archetype-catalog file " + archXmlContent)
+		return nil, err
+	}
+	return archCatalog.Archetypes, nil
 }
 
 func validateMaven(paths []string) ([]string, bool) {

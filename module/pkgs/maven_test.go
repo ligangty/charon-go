@@ -57,6 +57,57 @@ func TestMavenArchetypeCatalog(t *testing.T) {
 	fmt.Println(content)
 }
 
+func TestParseArchetypes(t *testing.T) {
+	content := `<MavenArchetypeCatalog>
+  <archetypes>
+    <archetype>
+      <groupId>foo.bar</groupId>
+      <artifactId>foobar</artifactId>
+      <version>1.0</version>
+      <repository></repository>
+      <description>foobar 1.0</description>
+    </archetype>
+    <archetype>
+      <groupId>foo.bar</groupId>
+      <artifactId>foobar</artifactId>
+      <version>2.0</version>
+      <repository></repository>
+      <description>foobar 2.0</description>
+    </archetype>
+    <archetype>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-core</artifactId>
+      <version>1.0</version>
+      <repository></repository>
+      <description>quarkus-core 1.0</description>
+    </archetype>
+  </archetypes>
+</MavenArchetypeCatalog>
+`
+	archs, err := parseArchetypes(content)
+	assert.Nil(t, err)
+	assert.Equal(t, 3, len(archs))
+	assert.Equal(t, ArchetypeRef{
+		GroupId:     "foo.bar",
+		ArtifactId:  "foobar",
+		Version:     "1.0",
+		Description: "foobar 1.0",
+	}, archs[0])
+	assert.Equal(t, ArchetypeRef{
+		GroupId:     "foo.bar",
+		ArtifactId:  "foobar",
+		Version:     "2.0",
+		Description: "foobar 2.0",
+	}, archs[1])
+	assert.Equal(t, ArchetypeRef{
+		GroupId:     "io.quarkus",
+		ArtifactId:  "quarkus-core",
+		Version:     "1.0",
+		Description: "quarkus-core 1.0",
+	}, archs[2])
+
+}
+
 func TestVersionsCompare(t *testing.T) {
 	// Normal versions comparasion
 	assert.Equal(t, -1, versionCompare("1.0.0", "1.0.1"))

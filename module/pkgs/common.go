@@ -31,19 +31,6 @@ const (
 </metadata>
 `
 
-	ARCHETYPE_CATALOG_TEMPLATE = `<archetype-catalog>
-  <archetypes>
-  {{range $arch := .Archetypes}}
-    <archetype>
-      <groupId>{{ $arch.GroupId }}</groupId>
-      <artifactId>{{ $arch.ArtifactId }}</artifactId>
-      <version>{{ $arch.Version }}</version>
-      <description>{{ $arch.Description }}</description>
-    </archetype>
-  {{end}}
-  </archetypes>
-</archetype-catalog>
-`
 	//TODO: need to change to use go template
 	INDEX_HTML_TEMPLATE = `<!DOCTYPE html>
 <html>
